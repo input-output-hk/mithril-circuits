@@ -9,6 +9,7 @@ use crate::{
 };
 use halo2curves::{CurveAffine, ff::Field, group::Group};
 use midnight_circuits::types::AssignedForeignPoint;
+use std::collections::{BTreeMap, HashSet};
 
 type C = blstrs::G1Projective;
 type CAffine = blstrs::G1Affine;
@@ -27,8 +28,8 @@ pub struct IvcCircuit {
     pub prev_proof: Value<Vec<u8>>,
     pub prev_acc: Value<Accumulator<C>>,
     // inner circuit
-    pub  inner_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
-//    inner_committed_instance: Value<C>,
+    pub inner_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
+    //    inner_committed_instance: Value<C>,
     pub inner_instances: Value<[F; NB_INNER_INSTANCES]>,
     pub inner_proof: Value<Vec<u8>>,
 }
@@ -117,7 +118,8 @@ impl Circuit<F> for IvcCircuit {
 
         core_decomp_chip.load(&mut layouter)?;
 
-        let id_point: AssignedForeignPoint<_,_,_> = curve_chip.assign_fixed(&mut layouter, C::identity())?;
+        let id_point: AssignedForeignPoint<_, _, _> =
+            curve_chip.assign_fixed(&mut layouter, C::identity())?;
 
         // assign for inner circuit proof verification
         let inner_vk_name = "inner_vk";
@@ -133,8 +135,8 @@ impl Circuit<F> for IvcCircuit {
         // let assigned_committed_instance =
         //     curve_chip.assign(&mut layouter, self.inner_committed_instance)?;
 
-        let assigned_inner_pi = scalar_chip
-            .assign_many(&mut layouter, &self.inner_instances.transpose_array())?;
+        let assigned_inner_pi =
+            scalar_chip.assign_many(&mut layouter, &self.inner_instances.transpose_array())?;
 
         let mut inner_proof_acc = verifier_chip.prepare(
             &mut layouter,
@@ -163,7 +165,6 @@ impl Circuit<F> for IvcCircuit {
         let next_state = scalar_chip.add_constant(&mut layouter, &prev_state, F::ONE)?;
         scalar_chip.constrain_as_public_input(&mut layouter, &next_state)?;
 
-        // todo: add fixed_base_names from inner_vk for prev_acc?
         // Witness a proof and an accumulator that ensure the validity of `prev_state`.
         let prev_acc = {
             let mut fixed_base_names = vec![String::from("com_instance")];
@@ -177,6 +178,9 @@ impl Circuit<F> for IvcCircuit {
                 inner_cs.num_fixed_columns() + inner_cs.num_selectors(),
                 inner_cs.permutation().columns.len(),
             ));
+            // remove repeated names
+            let mut seen = HashSet::new();
+            fixed_base_names.retain(|x| seen.insert(x.clone()));
             AssignedAccumulator::assign(
                 &mut layouter,
                 &curve_chip,
@@ -190,6 +194,7 @@ impl Circuit<F> for IvcCircuit {
         };
 
         let assigned_pi = [
+            verifier_chip.as_public_input(&mut layouter, &assigned_inner_vk)?,
             verifier_chip.as_public_input(&mut layouter, &assigned_self_vk)?,
             vec![prev_state.clone()],
             verifier_chip.as_public_input(&mut layouter, &prev_acc)?,

@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -38,6 +38,7 @@ use midnight_proofs::{
     dev::CircuitCost,
     plonk::Error,
 };
+use midnight_proofs::dev::MockProver;
 use mithril_circuits::circuits::certificate::Certificate;
 use mithril_circuits::ivc::{IvcCircuit, configure_ivc_circuit};
 use mithril_circuits::{ivc_with_inner, Signature, SigningKey, VerificationKey};
@@ -48,6 +49,22 @@ type CAffine = blstrs::G1Affine;
 type E = blstrs::Bls12;
 type CBase = <C as CircuitCurve>::Base;
 type F = <CAffine as CurveAffine>::ScalarExt;
+
+// create unsafe params for tests
+fn create(k: u32) {
+    let path = format!("examples/assets/params_kzg_unsafe_{}", k);
+    // Step 1: Create an instance of ParamsKZG
+    let params: ParamsKZG<Bls12> = ParamsKZG::unsafe_setup(k, OsRng);
+
+    // Step 2: Open a file for writing
+    let file = File::create(&path).unwrap();
+    let mut writer = BufWriter::new(file);
+
+    // Step 3: Write the ParamsKZG to the file
+    params.write_custom(&mut writer, SerdeFormat::RawBytesUnchecked).unwrap();
+
+    println!("ParamsKZG written to {}", path);
+}
 
 fn open(k: u32) -> ParamsKZG<Bls12> {
     let path = format!("examples/assets/params_kzg_unsafe_{}", k);
@@ -276,12 +293,20 @@ fn test_ivc() {
 fn test_ivc_with_inner() {
     use ivc_with_inner::{configure_ivc_circuit, IvcCircuit};
 
+    const K: u32 = 20;
+    
+    // create unsafe parameters once
+    // create(K);
+    let srs = open(K);
+
     // set up inner circuit
     println!("setting up inner circuit...");
     const K_INNER: u32 = 11;
-    let inner_srs = filecoin_srs(K_INNER);
+    let mut inner_srs = srs.clone();
+    inner_srs.downsize(K_INNER);
+
     let relation = Certificate;
-    let inner_circuit = MidnightCircuit::from_relation(&relation);
+   // let inner_circuit = MidnightCircuit::from_relation(&relation);
     let start = Instant::now();
     let inner_vk = compact_std_lib::setup_vk(&inner_srs, &relation);
     let inner_pk = compact_std_lib::setup_pk(&relation, &inner_vk);
@@ -316,6 +341,7 @@ fn test_ivc_with_inner() {
         )
         .expect("Problem preparing the inner proof")
     };
+    assert!(inner_dual_msm.clone().check(&inner_srs.verifier_params()));
 
     let mut fixed_bases = BTreeMap::new();
     fixed_bases.insert(String::from("com_instance"), C::identity());
@@ -323,19 +349,15 @@ fn test_ivc_with_inner() {
 
   //  println!("\nfixed bases from verifier: {:?}", crate::verifier::fixed_bases::<C>("inner_vk", &inner_vk.vk()));
 
-    let mut inner_acc: Accumulator<C> = inner_dual_msm.clone().into();
+    let mut inner_acc: Accumulator<C> = inner_dual_msm.into();
     inner_acc.extract_fixed_bases(&fixed_bases);
-
-    assert!(inner_dual_msm.check(&inner_srs.verifier_params()));
     assert!(inner_acc.check(&inner_srs.s_g2().into(), &fixed_bases));
     inner_acc.collapse();
 
    // println!("inner acc = {:?}", inner_acc);
 
     // ivc circuit with inner vk
-    const K: u32 = 20;
 
-    let srs = open(K);
     let mut self_cs = ConstraintSystem::default();
     configure_ivc_circuit(&mut self_cs);
     let self_domain = EvaluationDomain::new(self_cs.degree() as u32, K);
@@ -385,6 +407,12 @@ fn test_ivc_with_inner() {
     // Set the state (and acc) that we will prove (they are PI to the proof).
     let mut state = prev_state + F::ONE;
     let mut acc = inner_acc.accumulate(&trivial_acc);
+    acc.collapse();
+
+    assert!(
+        acc.check(&srs.s_g2().into(), &fixed_bases),
+        "IVC acc verification failed"
+    );
 
     let circuit = IvcCircuit {
         self_vk: (
@@ -408,6 +436,9 @@ fn test_ivc_with_inner() {
     public_inputs.extend(AssignedVk::<C>::as_public_input(&vk));
     public_inputs.extend(AssignedNative::<F>::as_public_input(&state));
     public_inputs.extend(AssignedAccumulator::as_public_input(&acc));
+
+    let prover = MockProver::run(K, &circuit, vec![vec![], public_inputs.clone()]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
 
     let start = Instant::now();
     let proof = {
