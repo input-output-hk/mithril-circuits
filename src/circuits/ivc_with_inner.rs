@@ -9,7 +9,7 @@ use crate::{
 };
 use halo2curves::{CurveAffine, ff::Field, group::Group};
 use midnight_circuits::types::AssignedForeignPoint;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 type C = blstrs::G1Projective;
 type CAffine = blstrs::G1Affine;
@@ -29,7 +29,6 @@ pub struct IvcCircuit {
     pub prev_acc: Value<Accumulator<C>>,
     // inner circuit
     pub inner_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
-    //    inner_committed_instance: Value<C>,
     pub inner_instances: Value<[F; NB_INNER_INSTANCES]>,
     pub inner_proof: Value<Vec<u8>>,
 }
@@ -132,9 +131,6 @@ impl Circuit<F> for IvcCircuit {
             *inner_vk_value,
         )?;
 
-        // let assigned_committed_instance =
-        //     curve_chip.assign(&mut layouter, self.inner_committed_instance)?;
-
         let assigned_inner_pi =
             scalar_chip.assign_many(&mut layouter, &self.inner_instances.transpose_array())?;
 
@@ -228,13 +224,14 @@ impl Circuit<F> for IvcCircuit {
         proof_acc.collapse(&mut layouter, &curve_chip, &scalar_chip)?;
 
         // Accumulate the inner_proof_acc
-        let acc_with_inner = inner_proof_acc.accumulate(
+        let mut acc_with_inner = inner_proof_acc.accumulate(
             &mut layouter,
             &verifier_chip,
             &scalar_chip,
             &poseidon_chip,
             &prev_acc,
         )?;
+        acc_with_inner.collapse(&mut layouter, &curve_chip, &scalar_chip)?;
 
         // Accumulate the `proof_acc` with the previous witnessed accumulator.
         // `next_acc` will satisfy the invariant iff both `proof_acc` and `prev_acc` do.
