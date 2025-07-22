@@ -1,11 +1,11 @@
 use crate::{
-    HashCPU, HashToCurveCPU, JubjubAffine, JubjubBase, JubjubExtended, JubjubHashToCurve,
-    JubjubScalar, JubjubSubgroup, PoseidonHash,
+    HashCPU, HashToCurveCPU, JubjubBase, JubjubExtended, JubjubHashToCurve, JubjubScalar,
+    JubjubSubgroup, PoseidonHash,
+    utils::{get_coordinates, is_on_curve, jubjub_base_to_scalar},
 };
 use ff::Field;
-use group::{Group, GroupEncoding};
-use rand_core::{CryptoRng, OsRng, RngCore};
-
+use group::Group;
+use rand_core::{CryptoRng, RngCore};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,24 +15,6 @@ pub enum SignatureError {
     /// This error occurs when the serialization of the raw bytes failed
     #[error("Invalid bytes")]
     SerializationError,
-}
-
-pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
-    let extended: JubjubExtended = point.into(); // Convert to JubjubExtended
-    let affine: JubjubAffine = extended.into(); // Convert to JubjubAffine (affine coordinates)
-    let x = affine.get_u(); // Get x-coordinate
-    let y = affine.get_v(); // Get y-coordinate
-    (x, y)
-}
-
-pub fn jubjub_base_to_scalar(x: JubjubBase) -> JubjubScalar {
-    let mut bytes = x.to_bytes_le();
-    JubjubScalar::from_raw([
-        u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
-        u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-        u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-        u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
-    ])
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +54,7 @@ impl SigningKey {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct VerificationKey(pub JubjubSubgroup);
 
 impl From<&SigningKey> for VerificationKey {
@@ -84,7 +66,12 @@ impl From<&SigningKey> for VerificationKey {
 }
 
 impl VerificationKey {
-    pub fn to_bytes(self) -> [u8; 64] {
+    pub fn to_field(&self) -> [JubjubBase; 2] {
+        let (x, y) = get_coordinates(self.0);
+        [x, y]
+    }
+
+    pub fn to_bytes(&self) -> [u8; 64] {
         let (x, y) = get_coordinates(self.0);
         let mut bytes = [0u8; 64];
         bytes[0..32].copy_from_slice(&x.to_bytes_le());
@@ -92,14 +79,30 @@ impl VerificationKey {
         bytes
     }
 
-    // pub fn from_bytes(bytes: &[u8]) -> Result<Self, SignatureError> {
-    //     let bytes = bytes.get(0..64).ok_or(SignatureError::SerializationError)?;
-    //     let u = JubjubBase::from_bytes_le(&bytes[0..32].try_into().map_err(|_| {SignatureError::SerializationError})?);        ;
-    //     let v = JubjubBase::from_bytes_le(&bytes[32..64].try_into().map_err(|_| {SignatureError::SerializationError})?);
-    //     let point = JubjubSubgroup::from_raw_unchecked(u,v);
-    //
-    //
-    // }
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, SignatureError> {
+        let bytes = bytes.get(0..64).ok_or(SignatureError::SerializationError)?;
+        let mut u_bytes = [0u8; 32];
+        u_bytes.copy_from_slice(&bytes[0..32]);
+        let mut v_bytes = [0u8; 32];
+        v_bytes.copy_from_slice(&bytes[32..64]);
+
+        let u = JubjubBase::from_bytes_le(&u_bytes)
+            .into_option()
+            .ok_or(SignatureError::SerializationError)?;
+        let v = JubjubBase::from_bytes_le(&v_bytes)
+            .into_option()
+            .ok_or(SignatureError::SerializationError)?;
+        if !bool::from(is_on_curve(u, v)) {
+            return Err(SignatureError::SerializationError);
+        }
+
+        let point = JubjubSubgroup::from_raw_unchecked(u, v);
+        if !bool::from(JubjubExtended::from(point).is_prime_order()) {
+            return Err(SignatureError::SerializationError);
+        }
+
+        Ok(VerificationKey(point))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,11 +148,16 @@ impl Signature {
 
         Ok(())
     }
+
+    pub fn sigma(&self) -> (JubjubBase, JubjubBase) {
+        let (x, y) = get_coordinates(self.sigma);
+        (x, y)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*; // Import all elements from the module
+    use super::*;
     use rand_core::OsRng;
 
     /// Test signing functionality.
