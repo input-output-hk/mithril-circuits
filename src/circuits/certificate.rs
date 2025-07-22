@@ -302,12 +302,17 @@ mod tests {
     use crate::certificate::Certificate;
     use crate::merkle_tree::MerkleTree;
     use crate::{BlstG1, MidnightCircuit, SigningKey, VerificationKey, compact_std_lib};
+    use blstrs::Bls12;
     use ff::Field;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::poly::kzg::params::ParamsKZG;
+    use midnight_proofs::utils::SerdeFormat;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
+    use std::fs::File;
+    use std::io::BufReader;
     use std::time::Instant;
 
     fn create_merkle_tree(n: usize) -> (Vec<SigningKey>, Vec<MTLeaf>, MerkleTree) {
@@ -327,15 +332,24 @@ mod tests {
         (sks, leaves, tree)
     }
 
+    fn open(k: u32) -> ParamsKZG<Bls12> {
+        let path = format!("examples/assets/params_kzg_unsafe_{}", k);
+        let file = File::open(path).unwrap();
+        let mut reader = BufReader::new(file);
+        let params: ParamsKZG<Bls12> =
+            ParamsKZG::read_custom(&mut reader, SerdeFormat::RawBytesUnchecked).unwrap();
+
+        params
+    }
+
     #[test]
     fn test_certificate() {
         const K: u32 = 13;
         let srs = filecoin_srs(K);
+        // let srs = open(K);
 
         let num_signers: usize = 3000;
         let depth = num_signers.next_power_of_two().trailing_zeros();
-        println!("merkle tree depth: {}", depth);
-
         let quorum = 3;
         let num_lotteries = quorum * 10;
         let relation = Certificate::new(quorum, num_lotteries, depth);
@@ -357,10 +371,8 @@ mod tests {
         println!("\nvk pk generation took: {:?}", duration);
 
         let merkle_root = merkle_tree.root();
-
         // message to be signed
         let msg = F::from(42);
-        println!("\nmsg: {:?}", msg);
 
         // take the first few signers
         let mut witness = vec![];

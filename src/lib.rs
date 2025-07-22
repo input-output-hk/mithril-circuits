@@ -46,6 +46,7 @@ use midnight_circuits::{
 use midnight_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
     plonk::{Circuit, ConstraintSystem, Error, create_proof, keygen_pk, keygen_vk_with_k, prepare},
+    poly::kzg::params::ParamsKZG,
     poly::{EvaluationDomain, kzg::KZGCommitmentScheme},
     transcript::{CircuitTranscript, Transcript},
 };

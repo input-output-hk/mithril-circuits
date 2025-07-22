@@ -12,7 +12,7 @@ pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
 }
 
 pub fn jubjub_base_to_scalar(x: JubjubBase) -> JubjubScalar {
-    let mut bytes = x.to_bytes_le();
+    let bytes = x.to_bytes_le();
     JubjubScalar::from_raw([
         u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
         u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
