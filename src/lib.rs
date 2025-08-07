@@ -37,7 +37,8 @@ use midnight_circuits::{
     instructions::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
         ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions,
-        HashToCurveCPU, PublicInputInstructions, ZeroInstructions, hash::HashCPU,
+        HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions, ZeroInstructions,
+        hash::HashCPU,
     },
     types::{AssignedBit, AssignedNative, AssignedNativePoint, ComposableChip, Instantiable},
     verifier::{self, Accumulator, AssignedAccumulator, AssignedVk, Msm, VerifierGadget},
@@ -65,3 +66,14 @@ pub type Msg = JubjubBase;
 pub type Target = JubjubBase;
 pub type MerkleRoot = JubjubBase;
 pub type Index = u32;
+pub type LotteryIndex = u32;
+pub type SignerIndex = u32;
+
+pub const DST_MERKLE_LEAF: JubjubBase = JubjubBase::from_raw([0u64, 0, 0, 0]);
+pub const DST_MERKLE_NODE: JubjubBase = JubjubBase::from_raw([1u64, 0, 0, 0]);
+pub const DST_SIGNATURE: JubjubBase = JubjubBase::from_raw([2u64, 0, 0, 0]);
+pub const DST_LOTTERY: JubjubBase = JubjubBase::from_raw([3u64, 0, 0, 0]);
+pub const DST_ALBA_ROUND: JubjubBase = JubjubBase::from_raw([4u64, 0, 0, 0]);
+pub const DST_ALBA_BIN: JubjubBase = JubjubBase::from_raw([5u64, 0, 0, 0]);
+pub const DST_ALBA_FINAL: JubjubBase = JubjubBase::from_raw([6u64, 0, 0, 0]);
+pub const DST_PERMUTATION: JubjubBase = JubjubBase::from_raw([7u64, 0, 0, 0]);

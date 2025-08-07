@@ -1,6 +1,9 @@
 use crate::{JubjubAffine, JubjubBase, JubjubExtended, JubjubScalar, JubjubSubgroup};
 use blstrs::EDWARDS_D;
-use ff::{Field, PrimeField, PrimeFieldBits};
+use ff::{Field, PrimeField};
+use num_bigint::BigUint;
+use num_integer::Integer;
+use num_traits::{Num, One, Zero};
 use subtle::{Choice, ConstantTimeEq};
 
 pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
@@ -35,59 +38,57 @@ pub fn is_on_curve(u: JubjubBase, v: JubjubBase) -> Choice {
     lhs.ct_eq(&rhs)
 }
 
-// decompose a JubjubBase into three 85-bit JubjubBase elements
-pub fn decompose(value: &JubjubBase) -> Vec<JubjubBase> {
-    // Convert the field element to little-endian bits
-    let bits = value.to_le_bits();
+/// Breaks the given `value` into `nb_limbs` limbs representing the value in the
+/// given `base` (in little-endian).
+/// Panics if the conversion is not possible.
+pub fn big_to_limbs(nb_limbs: u32, base: &BigUint, value: &BigUint) -> Vec<BigUint> {
+    let mut output = vec![];
+    let mut q = (*value).clone();
+    let mut r;
+    while output.len() < nb_limbs as usize {
+        (q, r) = q.div_rem(base);
+        output.push(r.clone());
+    }
+    if !BigUint::is_zero(&q) {
+        panic!(
+            "big_to_limbs: {} cannot be expressed in base {} with {} limbs",
+            value, base, nb_limbs
+        )
+    };
+    output
+}
 
-    // Split the 255-bit representation into three 85-bit segments
-    let b1_bits = &bits[0..85];
-    let b2_bits = &bits[85..170];
-    let b3_bits = &bits[170..255];
+pub fn modulus<F: PrimeField>() -> BigUint {
+    BigUint::from_str_radix(&F::MODULUS[2..], 16).unwrap()
+}
 
-    // Convert the bit slices to u128 values
-    let b1_value = u128::from_le_bytes({
-        let mut buffer = [0u8; 16]; // 128 bits
-        for (i, bit) in b1_bits.iter().enumerate() {
-            if *bit {
-                buffer[i / 8] |= 1 << (i % 8);
-            }
-        }
-        buffer
-    });
+pub fn big_to_fe<F: PrimeField>(e: BigUint) -> F {
+    let modulus = modulus::<F>();
+    let e = e % modulus;
+    F::from_str_vartime(&e.to_str_radix(10)[..]).unwrap()
+}
 
-    let b2_value = u128::from_le_bytes({
-        let mut buffer = [0u8; 16]; // 128 bits
-        for (i, bit) in b2_bits.iter().enumerate() {
-            if *bit {
-                buffer[i / 8] |= 1 << (i % 8);
-            }
-        }
-        buffer
-    });
+pub fn fe_to_big<F: PrimeField>(fe: F) -> BigUint {
+    BigUint::from_bytes_le(fe.to_repr().as_ref())
+}
 
-    let b3_value = u128::from_le_bytes({
-        let mut buffer = [0u8; 16]; // 128 bits
-        for (i, bit) in b3_bits.iter().enumerate() {
-            if *bit {
-                buffer[i / 8] |= 1 << (i % 8);
-            }
-        }
-        buffer
-    });
+pub fn decompose<F: PrimeField>(value: &F, limb_bits: usize) -> Vec<F> {
+    let value_big = BigUint::from_bytes_le(value.to_repr().as_ref());
+    let nb_limbs = value_big.bits().div_ceil(limb_bits as u64) as u32;
+    big_to_limbs(nb_limbs, &(BigUint::from(1u8) << limb_bits), &value_big)
+        .into_iter()
+        .map(big_to_fe::<F>)
+        .collect()
+}
 
-    // Convert the u128 values into `JubjubBase` elements
-    let limb1 = JubjubBase::from_u128(b1_value);
-    let limb2 = JubjubBase::from_u128(b2_value);
-    let limb3 = JubjubBase::from_u128(b3_value);
-
-    let base_85 = JubjubBase::from_u128(1_u128 << 85);
-    let base_170 = base_85 * base_85;
-    // Reconstruct the original value
-    let res = limb1 + limb2 * base_85 + limb3 * base_170;
-    res.ct_eq(&value);
-
-    vec![limb1, limb2, limb3]
+pub fn split<F: PrimeField>(value: &F, num_bits: u32) -> (F, F) {
+    let value_big = BigUint::from_bytes_le(value.to_repr().as_ref());
+    let lower_mask = (BigUint::one() << num_bits) - BigUint::one(); // Create a mask for n bits
+    let lower_big = value_big.clone() & &lower_mask;
+    let upper_big = value_big >> num_bits;
+    let lower = big_to_fe::<F>(lower_big);
+    let upper = big_to_fe::<F>(upper_big);
+    (lower, upper)
 }
 
 #[cfg(test)]
@@ -98,8 +99,34 @@ mod tests {
     #[test]
     fn test_decompose() {
         let ran = JubjubBase::random(&mut OsRng);
-        let decomposed = decompose(&ran);
+        let limb_bits = 85;
+        let limbs = decompose(&ran, limb_bits);
+        assert_eq!(limbs.len(), 3);
 
-        assert_eq!(decomposed.len(), 3);
+        let mut reconstructed = JubjubBase::ZERO;
+        let base = JubjubBase::from_u128(1_u128 << limb_bits);
+        for (i, limb) in limbs.iter().enumerate() {
+            reconstructed += base.pow_vartime(&[i as u64]) * limb;
+        }
+        assert_eq!(
+            reconstructed.ct_eq(&ran).unwrap_u8(),
+            1,
+            "Decomposition failed!"
+        );
+    }
+
+    #[test]
+    fn test_split() {
+        let ran = JubjubBase::random(&mut OsRng);
+        let num_bits = 120;
+        let (lower, upper) = split(&ran, num_bits);
+
+        let base = JubjubBase::from_u128(1_u128 << num_bits);
+        let reconstructed = lower + base * upper;
+        assert_eq!(
+            reconstructed.ct_eq(&ran).unwrap_u8(),
+            1,
+            "Splitting failed!"
+        );
     }
 }

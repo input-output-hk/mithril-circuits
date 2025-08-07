@@ -1,6 +1,3 @@
-//! Examples on how to perform ECC operations using the ECC Chip inside of
-//! ZkStdLib.
-
 use rand::rngs::OsRng;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -38,6 +35,6 @@ fn open(k: u32) -> ParamsKZG<Bls12> {
 }
 
 fn main() {
-    create(20);
-    open(20);
+    create(15);
+    open(15);
 }

@@ -1,6 +1,6 @@
 use crate::{
-    HashCPU, HashToCurveCPU, JubjubBase, JubjubExtended, JubjubHashToCurve, JubjubScalar,
-    JubjubSubgroup, PoseidonHash,
+    DST_SIGNATURE, HashCPU, HashToCurveCPU, JubjubBase, JubjubExtended, JubjubHashToCurve,
+    JubjubScalar, JubjubSubgroup, PoseidonHash,
     utils::{get_coordinates, is_on_curve, jubjub_base_to_scalar},
 };
 use ff::Field;
@@ -36,7 +36,6 @@ impl SigningKey {
         let cap_r_1 = &hash * &r;
         let cap_r_2 = &g * &r;
 
-        let (gx, gy) = get_coordinates(g);
         let (hx, hy) = get_coordinates(hash);
         let (vk_x, vk_y) = get_coordinates(vk);
         let (sigma_x, sigma_y) = get_coordinates(sigma);
@@ -44,7 +43,16 @@ impl SigningKey {
         let (cap_r_2_x, cap_r_2_y) = get_coordinates(cap_r_2);
 
         let c = PoseidonHash::hash(&[
-            gx, gy, hx, hy, vk_x, vk_y, sigma_x, sigma_y, cap_r_1_x, cap_r_1_y, cap_r_2_x,
+            DST_SIGNATURE,
+            hx,
+            hy,
+            vk_x,
+            vk_y,
+            sigma_x,
+            sigma_y,
+            cap_r_1_x,
+            cap_r_1_y,
+            cap_r_2_x,
             cap_r_2_y,
         ]);
         let c_scalar = jubjub_base_to_scalar(c);
@@ -119,7 +127,6 @@ impl Signature {
         let hash = JubjubHashToCurve::hash_to_curve(&[msg]);
         let c_scalar = jubjub_base_to_scalar(self.c);
 
-        let (gx, gy) = get_coordinates(g);
         let (hx, hy) = get_coordinates(hash);
         let (vk_x, vk_y) = get_coordinates(vk.0);
         let (sigma_x, sigma_y) = get_coordinates(self.sigma);
@@ -128,8 +135,7 @@ impl Signature {
         let (cap_r_1_x_prime, cap_r_1_y_prime) = get_coordinates(cap_r_1_prime);
         let (cap_r_2_x_prime, cap_r_2_y_prime) = get_coordinates(cap_r_2_prime);
         let c_prime = PoseidonHash::hash(&[
-            gx,
-            gy,
+            DST_SIGNATURE,
             hx,
             hy,
             vk_x,
