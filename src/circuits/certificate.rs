@@ -250,8 +250,7 @@ mod tests {
     use super::*;
     use crate::certificate::Certificate;
     use crate::merkle_tree::MerkleTree;
-    use crate::{BlstG1, MidnightCircuit, SigningKey, VerificationKey, compact_std_lib};
-    use blstrs::Bls12;
+    use crate::{Bls12, BlstG1, MidnightCircuit, SigningKey, VerificationKey, compact_std_lib};
     use ff::Field;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;

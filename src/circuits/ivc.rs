@@ -1,18 +1,21 @@
 use crate::{
     Accumulator, ArithInstructions, AssignedAccumulator, AssignedVk, AssignmentInstructions,
-    BinaryInstructions, Circuit, CircuitCurve, ComposableChip, ConstraintSystem, Error,
-    EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, Layouter, NB_ARITH_COLS,
-    NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget,
-    P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip,
-    PublicInputInstructions, SimpleFloorPlanner, Value, ZeroInstructions,
-    nb_foreign_ecc_chip_columns, verifier, verifier::VerifierGadget,
+    BinaryInstructions, BlstG1, BlstG1Affine, BlstrsEmulation, Circuit, CircuitCurve,
+    ComposableChip, ConstraintSystem, Error, EvaluationDomain, FieldChip, ForeignEccChip,
+    ForeignEccConfig, Layouter, NB_ARITH_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS,
+    NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip, P2RDecompositionConfig,
+    PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions, SelfEmulation,
+    SimpleFloorPlanner, Value, ZeroInstructions, nb_foreign_ecc_chip_columns, verifier,
+    verifier::VerifierGadget,
 };
-use halo2curves::{CurveAffine, ff::Field, group::Group};
+use halo2curves::{ff::Field, group::Group};
 
-type C = blstrs::G1Projective;
-type CAffine = blstrs::G1Affine;
+type S = BlstrsEmulation;
+type F = <S as SelfEmulation>::F;
+type C = <S as SelfEmulation>::C;
+
+type E = <S as SelfEmulation>::Engine;
 type CBase = <C as CircuitCurve>::Base;
-type F = <CAffine as CurveAffine>::ScalarExt;
 
 type NG = NativeGadget<F, P2RDecompositionChip<F>, NativeChip<F>>;
 
@@ -22,7 +25,7 @@ pub struct IvcCircuit {
     // We use a simple application function that increases a counter.
     pub prev_state: Value<F>,
     pub prev_proof: Value<Vec<u8>>,
-    pub prev_acc: Value<Accumulator<C>>,
+    pub prev_acc: Value<Accumulator<S>>,
 }
 
 pub fn configure_ivc_circuit(
@@ -111,7 +114,7 @@ impl Circuit<F> for IvcCircuit {
 
         let self_vk_name = "self_vk";
         let (self_domain, self_cs, self_vk_value) = &self.self_vk;
-        let assigned_self_vk: AssignedVk<C> = verifier_chip.assign_vk_as_public_input(
+        let assigned_self_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
             &mut layouter,
             self_vk_name,
             self_domain,
@@ -128,7 +131,7 @@ impl Circuit<F> for IvcCircuit {
         // Witness a proof and an accumulator that ensure the validity of `prev_state`.
         let prev_acc = {
             let mut fixed_base_names = vec![String::from("com_instance")];
-            fixed_base_names.extend(verifier::fixed_base_names::<C>(
+            fixed_base_names.extend(verifier::fixed_base_names::<S>(
                 self_vk_name,
                 self_cs.num_fixed_columns() + self_cs.num_selectors(),
                 self_cs.permutation().columns.len(),
@@ -182,12 +185,12 @@ impl Circuit<F> for IvcCircuit {
 
         // Accumulate the `proof_acc` with the previous witnessed accumulator.
         // `next_acc` will satisfy the invariant iff both `proof_acc` and `prev_acc` do.
-        let mut next_acc = proof_acc.accumulate(
+        let mut next_acc = AssignedAccumulator::<S>::accumulate(
             &mut layouter,
             &verifier_chip,
             &scalar_chip,
             &poseidon_chip,
-            &prev_acc,
+            &[proof_acc, prev_acc],
         )?;
 
         // Finally, collapse the resulting accumulator and constraint it as public.
@@ -201,10 +204,9 @@ impl Circuit<F> for IvcCircuit {
 mod tests {
     use super::*;
     use crate::{
-        AssignedNative, CircuitTranscript, Instantiable, KZGCommitmentScheme, Msm, ParamsKZG,
-        PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k, prepare,
+        AssignedNative, Bls12, CircuitTranscript, Instantiable, KZGCommitmentScheme, Msm,
+        ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k, prepare,
     };
-    use blstrs::Bls12;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;
     use midnight_proofs::utils::SerdeFormat;
@@ -213,8 +215,6 @@ mod tests {
     use std::fs::File;
     use std::io::BufReader;
     use std::time::Instant;
-
-    type E = blstrs::Bls12;
 
     fn open(k: u32) -> ParamsKZG<Bls12> {
         let path = format!("examples/assets/params_kzg_unsafe_{}", k);
@@ -254,7 +254,9 @@ mod tests {
 
         let mut fixed_bases = BTreeMap::new();
         fixed_bases.insert(String::from("com_instance"), C::identity());
-        fixed_bases.extend(midnight_circuits::verifier::fixed_bases("self_vk", &vk));
+        fixed_bases.extend(midnight_circuits::verifier::fixed_bases::<S>(
+            "self_vk", &vk,
+        ));
         let fixed_base_names = fixed_bases.keys().cloned().collect::<Vec<_>>();
 
         // This trivial accumulator must have a single base and scalar of F::ONE, and
@@ -266,7 +268,7 @@ mod tests {
         // On the other hand, the scalar has to be F::ONE because it is the value
         // obtained after a `collapse` (the last step before constraining the acc as
         // a public input).
-        let trivial_acc = Accumulator::<C>::new(
+        let trivial_acc = Accumulator::<S>::new(
             Msm::new(&[C::default()], &[F::ONE], &BTreeMap::new()),
             Msm::new(
                 &[C::default()],
@@ -300,7 +302,7 @@ mod tests {
                 prev_acc: Value::known(prev_acc.clone()),
             };
 
-            let mut public_inputs = AssignedVk::<C>::as_public_input(&vk);
+            let mut public_inputs = AssignedVk::<S>::as_public_input(&vk);
             public_inputs.extend(AssignedNative::<F>::as_public_input(&state));
             public_inputs.extend(AssignedAccumulator::as_public_input(&acc));
 
@@ -327,7 +329,7 @@ mod tests {
             println!("{i}-th IVC proof created in {:?}", start.elapsed());
             println!("proof size {:?}", proof.len());
 
-            let proof_acc: Accumulator<C> = {
+            let proof_acc: Accumulator<S> = {
                 let mut transcript = CircuitTranscript::<PoseidonState<F>>::init_from_bytes(&proof);
                 let dual_msm =
                     prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<PoseidonState<F>>>(
@@ -340,7 +342,7 @@ mod tests {
 
                 assert!(dual_msm.clone().check(&srs.verifier_params()));
 
-                let mut proof_acc: Accumulator<C> = dual_msm.into();
+                let mut proof_acc: Accumulator<S> = dual_msm.into();
                 proof_acc.extract_fixed_bases(&fixed_bases);
                 proof_acc.collapse();
                 proof_acc
@@ -354,7 +356,7 @@ mod tests {
             // If `acc` satisfies the invariant and `proof` is valid, we know that `state`
             // must be valid. We can asset the validity of both at the same time by
             // accumulating them first.
-            let mut accumulated = proof_acc.accumulate(&acc);
+            let mut accumulated = Accumulator::accumulate(&[proof_acc, acc]);
             accumulated.collapse();
 
             assert!(

@@ -4,9 +4,10 @@ pub mod merkle_tree;
 pub mod unique_signature;
 pub mod utils;
 
-pub use blstrs::{
-    Fq as JubjubBase, Fr as JubjubScalar, G1Projective as BlstG1, JubjubAffine,
-    JubjubExtended as Jubjub, JubjubExtended, JubjubSubgroup, MODULUS,
+pub use midnight_curves::{
+    Bls12, EDWARDS_D, Fq as JubjubBase, Fr as JubjubScalar, G1Affine as BlstG1Affine,
+    G1Projective as BlstG1, JubjubAffine, JubjubExtended as Jubjub, JubjubExtended, JubjubSubgroup,
+    MODULUS,
 };
 
 pub use circuits::*;
@@ -41,7 +42,10 @@ use midnight_circuits::{
         hash::HashCPU,
     },
     types::{AssignedBit, AssignedNative, AssignedNativePoint, ComposableChip, Instantiable},
-    verifier::{self, Accumulator, AssignedAccumulator, AssignedVk, Msm, VerifierGadget},
+    verifier::{
+        self, Accumulator, AssignedAccumulator, AssignedVk, BlstrsEmulation, Msm, SelfEmulation,
+        VerifierGadget,
+    },
 };
 
 use midnight_proofs::{

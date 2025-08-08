@@ -1,5 +1,4 @@
-use crate::{JubjubAffine, JubjubBase, JubjubExtended, JubjubScalar, JubjubSubgroup};
-use blstrs::EDWARDS_D;
+use crate::{EDWARDS_D, JubjubAffine, JubjubBase, JubjubExtended, JubjubScalar, JubjubSubgroup};
 use ff::{Field, PrimeField};
 use num_bigint::BigUint;
 use num_integer::Integer;

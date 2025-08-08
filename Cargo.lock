@@ -102,24 +102,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blstrs"
-version = "0.1.0"
-dependencies = [
- "bitvec",
- "blst",
- "byte-slice-cast",
- "ff",
- "getrandom",
- "group",
- "halo2curves",
- "num-bigint",
- "pairing",
- "rand_core",
- "serde",
- "subtle",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -433,19 +415,19 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "midnight-circuits"
-version = "3.0.0"
+version = "4.0.0"
 dependencies = [
  "arrayvec",
  "base64",
  "bitvec",
  "blake2b_simd",
- "blstrs",
  "const_num_bigint",
  "ff",
  "group",
  "halo2curves",
  "lazy_static",
- "midnight_proofs",
+ "midnight-curves",
+ "midnight-proofs",
  "num-bigint",
  "num-integer",
  "num-traits",
@@ -457,15 +439,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "midnight_proofs"
-version = "0.3.1"
+name = "midnight-curves"
+version = "0.1.0"
 dependencies = [
- "blake2b_simd",
- "blstrs",
+ "bitvec",
+ "blst",
+ "byte-slice-cast",
  "ff",
  "getrandom",
  "group",
  "halo2curves",
+ "num-bigint",
+ "pairing",
+ "rand_core",
+ "serde",
+ "subtle",
+]
+
+[[package]]
+name = "midnight-proofs"
+version = "0.4.0"
+dependencies = [
+ "blake2b_simd",
+ "ff",
+ "getrandom",
+ "group",
+ "halo2curves",
+ "midnight-curves",
  "num-bigint",
  "rand_chacha",
  "rand_core",
@@ -481,12 +481,12 @@ name = "mithril-circuits"
 version = "0.1.0"
 dependencies = [
  "blake2b_simd",
- "blstrs",
  "ff",
  "group",
  "halo2curves",
  "midnight-circuits",
- "midnight_proofs",
+ "midnight-curves",
+ "midnight-proofs",
  "num-bigint",
  "num-integer",
  "num-traits",

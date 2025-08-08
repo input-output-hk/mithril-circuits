@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter};
 
-use blstrs::Bls12;
+use mithril_circuits::Bls12;
 use midnight_proofs::{poly::kzg::params::ParamsKZG, utils::SerdeFormat};
 use rand::rngs::OsRng;
 

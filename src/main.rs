@@ -2,9 +2,9 @@ use rand::rngs::OsRng;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
-use blstrs::Bls12;
 use midnight_proofs::poly::kzg::params::ParamsKZG;
 use midnight_proofs::utils::SerdeFormat;
+use mithril_circuits::Bls12;
 
 // create unsafe params for tests
 fn create(k: u32) {

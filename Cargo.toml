@@ -20,8 +20,8 @@ num-integer = "0.1"
 
 halo2curves = { version = "0.7.0", default-features = false }
 midnight-circuits = { path = "../midnight-zk/circuits" }
-blstrs = { path = "../midnight-zk/curves" }
-midnight_proofs = { path = "../midnight-zk/proofs" }
+midnight-curves = { path = "../midnight-zk/curves" }
+midnight-proofs = { path = "../midnight-zk/proofs" }
 thiserror = "2.0.12"
 rug = { version = "1.27.0" }
 
