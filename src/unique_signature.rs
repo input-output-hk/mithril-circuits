@@ -56,7 +56,7 @@ impl SigningKey {
             cap_r_2_y,
         ]);
         let c_scalar = jubjub_base_to_scalar(c);
-        let s = self.0 * c_scalar + r;
+        let s = r - self.0 * c_scalar;
 
         Signature { sigma, s, c }
     }
@@ -130,8 +130,8 @@ impl Signature {
         let (hx, hy) = get_coordinates(hash);
         let (vk_x, vk_y) = get_coordinates(vk.0);
         let (sigma_x, sigma_y) = get_coordinates(self.sigma);
-        let cap_r_1_prime = &hash * &self.s - &self.sigma * &c_scalar;
-        let cap_r_2_prime = &g * &self.s - &vk.0 * &c_scalar;
+        let cap_r_1_prime = &hash * &self.s + &self.sigma * &c_scalar;
+        let cap_r_2_prime = &g * &self.s + &vk.0 * &c_scalar;
         let (cap_r_1_x_prime, cap_r_1_y_prime) = get_coordinates(cap_r_1_prime);
         let (cap_r_2_x_prime, cap_r_2_y_prime) = get_coordinates(cap_r_2_prime);
         let c_prime = PoseidonHash::hash(&[

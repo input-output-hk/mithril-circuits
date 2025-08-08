@@ -107,7 +107,7 @@ impl Relation for Certificate {
                 .map(|pos| std_lib.convert(layouter, pos))
                 .collect::<Result<Vec<AssignedBit<F>>, Error>>()?;
 
-            let sigma = std_lib
+            let sigma: AssignedNativePoint<_> = std_lib
                 .jubjub()
                 .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.sigma))?;
             let s: ScalarVar<Jubjub> = std_lib
@@ -144,19 +144,16 @@ impl Relation for Certificate {
             // ---------------------- Verify Signature ----------------------
             let (sigma_x, sigma_y) = {
                 // compute R1
-                let sigma_neg = std_lib.jubjub().negate(layouter, &sigma)?;
                 let cap_r_1 = std_lib.jubjub().msm(
                     layouter,
                     &[s.clone(), c.clone()],
-                    &[hash.clone(), sigma_neg],
+                    &[hash.clone(), sigma.clone()],
                 )?;
 
                 // compute R2
-                let vk_neg = std_lib.jubjub().negate(layouter, &vk)?;
-                let cap_r_2 =
-                    std_lib
-                        .jubjub()
-                        .msm(layouter, &[s, c], &[generator.clone(), vk_neg])?;
+                let cap_r_2 = std_lib
+                    .jubjub()
+                    .msm(layouter, &[s, c], &[generator.clone(), vk])?;
 
                 // compute H2(g, H1(msg), vk, sigma, R1, R2)
                 let hx = std_lib.jubjub().x_coordinate(&hash);
