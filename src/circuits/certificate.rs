@@ -1,8 +1,8 @@
 use crate::{
     AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
     AssignmentInstructions, ControlFlowInstructions, ConversionInstructions, DST_SIGNATURE,
-    EccInstructions, Error, Index, Jubjub, JubjubBase, JubjubSubgroup, Layouter, MerkleRoot, Msg,
-    PublicInputInstructions, Relation, ScalarVar, Signature, Value, ZkStdLib, ZkStdLibArch,
+    EccInstructions, Error, Jubjub, JubjubBase, JubjubSubgroup, Layouter, LotteryIndex, MerkleRoot,
+    Msg, PublicInputInstructions, Relation, ScalarVar, Signature, Value, ZkStdLib, ZkStdLibArch,
     lower_than_native,
     merkle_tree::{MTLeaf, MerklePath},
 };
@@ -32,7 +32,7 @@ impl Certificate {
 
 impl Relation for Certificate {
     type Instance = (MerkleRoot, Msg);
-    type Witness = Vec<(MTLeaf, MerklePath, Signature, Index)>;
+    type Witness = Vec<(MTLeaf, MerklePath, Signature, LotteryIndex)>;
 
     fn format_instance(instance: &Self::Instance) -> Vec<F> {
         vec![instance.0, instance.1]

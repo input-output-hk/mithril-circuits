@@ -1,3 +1,4 @@
+pub mod alba;
 pub mod circuits;
 pub mod lottery;
 pub mod merkle_tree;
@@ -69,7 +70,6 @@ type PoseidonHash = PoseidonChip<JubjubBase>;
 pub type Msg = JubjubBase;
 pub type Target = JubjubBase;
 pub type MerkleRoot = JubjubBase;
-pub type Index = u32;
 pub type LotteryIndex = u32;
 pub type SignerIndex = u32;
 
