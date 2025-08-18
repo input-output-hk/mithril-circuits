@@ -27,3 +27,7 @@ rug = { version = "1.27.0" }
 
 [dev-dependencies]
 rand_chacha = "0.3.1"
+
+[features]
+default = ["msm2"]
+msm2 = ["midnight-circuits/msm2"]

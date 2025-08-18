@@ -248,16 +248,28 @@ impl Relation for Certificate {
             // ---------------------- Verify Signature ----------------------
             let (sigma_x, sigma_y) = {
                 // compute R1
+                #[cfg(not(feature = "msm2"))]
                 let cap_r_1 = std_lib.jubjub().msm(
+                    layouter,
+                    &[s.clone(), c.clone()],
+                    &[hash.clone(), sigma.clone()],
+                )?;
+                #[cfg(feature = "msm2")]
+                let cap_r_1 = std_lib.jubjub().msm2(
                     layouter,
                     &[s.clone(), c.clone()],
                     &[hash.clone(), sigma.clone()],
                 )?;
 
                 // compute R2
+                #[cfg(not(feature = "msm2"))]
                 let cap_r_2 = std_lib
                     .jubjub()
                     .msm(layouter, &[s, c], &[generator.clone(), vk])?;
+                #[cfg(feature = "msm2")]
+                let cap_r_2 = std_lib
+                    .jubjub()
+                    .msm2(layouter, &[s, c], &[generator.clone(), vk])?;
 
                 // compute H2(g, H1(msg), vk, sigma, R1, R2)
                 let hx = std_lib.jubjub().x_coordinate(&hash);
@@ -483,7 +495,7 @@ impl Relation for Certificate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alba::{Element, Params as AlbaProofParams, Proof as AlbaProof, target};
+    use crate::alba::{Element, Params as AlbaProofParams, Proof as AlbaProof};
     use crate::merkle_tree::MerkleTree;
     use crate::{Bls12, BlstG1, MidnightCircuit, SigningKey, VerificationKey};
     use ff::Field;
@@ -620,6 +632,7 @@ mod tests {
 
         {
             let circuit = MidnightCircuit::from_relation(&relation);
+            println!("min_k {:?}", circuit.min_k());
             let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
             println!("{:?}", cost);
         }
