@@ -1,12 +1,11 @@
 use crate::{
     Accumulator, ArithInstructions, AssignedAccumulator, AssignedVk, AssignmentInstructions,
-    BinaryInstructions, BlstG1, BlstG1Affine, BlstrsEmulation, Circuit, CircuitCurve,
-    ComposableChip, ConstraintSystem, Error, EvaluationDomain, FieldChip, ForeignEccChip,
-    ForeignEccConfig, Layouter, NB_ARITH_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS,
-    NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip, P2RDecompositionConfig,
-    PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions, SelfEmulation,
-    SimpleFloorPlanner, Value, ZeroInstructions, nb_foreign_ecc_chip_columns, verifier,
-    verifier::VerifierGadget,
+    BinaryInstructions, BlstrsEmulation, Circuit, CircuitCurve, ComposableChip, ConstraintSystem,
+    Error, EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, Layouter, NB_ARITH_COLS,
+    NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget,
+    P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip,
+    PublicInputInstructions, SelfEmulation, SimpleFloorPlanner, Value, ZeroInstructions,
+    nb_foreign_ecc_chip_columns, verifier, verifier::VerifierGadget,
 };
 use halo2curves::{ff::Field, group::Group};
 

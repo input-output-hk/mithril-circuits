@@ -620,6 +620,7 @@ mod tests {
 
         {
             let circuit = MidnightCircuit::from_relation(&relation);
+            println!("min_k {:?}", circuit.min_k());
             let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
             println!("{:?}", cost);
         }
@@ -630,11 +631,13 @@ mod tests {
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("\nvk pk generation took: {:?}", duration);
 
-        let mut buffer = Cursor::new(Vec::new());
-        // Serialize the MidnightVK instance to the buffer in the RawBytes format
-        vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
-        // Get the size of the serialized MidnightVK
-        println!("vk length {:?}", buffer.get_ref().len());
+        {
+            let mut buffer = Cursor::new(Vec::new());
+            // Serialize the MidnightVK instance to the buffer in the RawBytes format
+            vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
+            // Get the size of the serialized MidnightVK
+            println!("vk length {:?}", buffer.get_ref().len());
+        }
 
         let start = Instant::now();
         let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(

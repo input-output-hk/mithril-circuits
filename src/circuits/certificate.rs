@@ -305,6 +305,7 @@ mod tests {
         {
             // print circuit size
             let circuit = MidnightCircuit::from_relation(&relation);
+            println!("min_k {:?}", circuit.min_k());
             let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
             println!("{:?}", cost);
         }
@@ -315,11 +316,13 @@ mod tests {
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("\nvk pk generation took: {:?}", duration);
 
-        let mut buffer = Cursor::new(Vec::new());
-        // Serialize the MidnightVK instance to the buffer in the RawBytes format
-        vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
-        // Get the size of the serialized MidnightVK
-        println!("vk length {:?}", buffer.get_ref().len());
+        {
+            let mut buffer = Cursor::new(Vec::new());
+            // Serialize the MidnightVK instance to the buffer in the RawBytes format
+            vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
+            // Get the size of the serialized MidnightVK
+            println!("vk length {:?}", buffer.get_ref().len());
+        }
 
         let merkle_root = merkle_tree.root();
         // message to be signed
@@ -328,17 +331,18 @@ mod tests {
         // take the first few signers
         let mut witness = vec![];
         for i in 0..quorum as usize {
-            let usk = sks[i].clone();
-            let uvk = leaves[i].0;
+            let ii = i % num_signers;
+            let usk = sks[ii].clone();
+            let uvk = leaves[ii].0;
             let sig = usk.sign(msg, &mut OsRng);
             sig.verify(msg, &uvk).unwrap();
 
-            let merkle_path = merkle_tree.get_path(i);
-            let computed_root = merkle_path.compute_root(leaves[i]);
+            let merkle_path = merkle_tree.get_path(ii);
+            let computed_root = merkle_path.compute_root(leaves[ii]);
             assert_eq!(merkle_root, computed_root);
 
             // any index is eligible as target is set to be the maximum
-            witness.push((leaves[i], merkle_path, sig, (i + 1) as u32));
+            witness.push((leaves[ii], merkle_path, sig, (i + 1) as u32));
         }
 
         let instance = (merkle_root, msg);
