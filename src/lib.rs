@@ -6,9 +6,9 @@ pub mod unique_signature;
 pub mod utils;
 
 pub use midnight_curves::{
-    Bls12, EDWARDS_D, Fq as JubjubBase, Fr as JubjubScalar, G1Affine as BlstG1Affine,
-    G1Projective as BlstG1, JubjubAffine, JubjubExtended as Jubjub, JubjubExtended, JubjubSubgroup,
-    MODULUS,
+    Bls12, EDWARDS_D, Fq as JubjubBase, Fq as BlsScalar, Fr as JubjubScalar,
+    G1Affine as BlstG1Affine, G1Projective as BlstG1, G2Affine as BlstG2Affine, JubjubAffine,
+    JubjubExtended as Jubjub, JubjubExtended, JubjubSubgroup, MODULUS,
 };
 
 pub use circuits::*;
