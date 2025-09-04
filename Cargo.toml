@@ -29,6 +29,8 @@ rug = { version = "1.27.0" }
 criterion = "0.4.0"
 rand_chacha = "0.3.1"
 blst = { version = "0.3.14", features = ["portable"] }
+blake2 = "0.10.6"
+digest = { version = "0.10.7", features = ["alloc"] }
 
 [[bench]]
 name = "signature"

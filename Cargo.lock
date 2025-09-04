@@ -658,9 +658,11 @@ dependencies = [
 name = "mithril-circuits"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "blake2b_simd",
  "blst",
  "criterion",
+ "digest 0.10.7",
  "ff",
  "group",
  "halo2curves",
