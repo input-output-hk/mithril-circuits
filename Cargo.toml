@@ -14,14 +14,11 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-#midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk/circuits" }
-#blstrs =  { git = "https://github.com/midnightntwrk/midnight-zk/curves" }
-#midnight_proofs = { git = "https://github.com/midnightntwrk/midnight-zk/proofs" }
-
+midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
+midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
+midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
 halo2curves = { version = "0.7.0", default-features = false }
-midnight-circuits = { path = "../midnight-zk/circuits" }
-midnight-curves = { path = "../midnight-zk/curves" }
-midnight-proofs = { path = "../midnight-zk/proofs" }
+
 thiserror = "2.0.12"
 rug = { version = "1.27.0" }
 
