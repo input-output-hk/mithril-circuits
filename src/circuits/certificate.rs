@@ -1,9 +1,9 @@
 use crate::{
     AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
-    AssignmentInstructions, ControlFlowInstructions, ConversionInstructions, DST_SIGNATURE,
-    EccInstructions, Error, Jubjub, JubjubBase, JubjubSubgroup, Layouter, LotteryIndex, MerkleRoot,
-    Msg, PublicInputInstructions, Relation, ScalarVar, Signature, Value, ZkStdLib, ZkStdLibArch,
-    lower_than_native,
+    AssignmentInstructions, ControlFlowInstructions, ConversionInstructions, DST_LOTTERY,
+    DST_SIGNATURE, EccInstructions, Error, Jubjub, JubjubBase, JubjubSubgroup, Layouter,
+    LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, Relation, ScalarVar, Signature, Value,
+    ZkStdLib, ZkStdLibArch, lower_than_native,
     merkle_tree::{MTLeaf, MerklePath},
 };
 use ff::Field;
@@ -58,8 +58,8 @@ impl Relation for Certificate {
         let generator: AssignedNativePoint<Jubjub> = std_lib
             .jubjub()
             .assign_fixed(layouter, <JubjubSubgroup as Group>::generator())?;
-
         let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
+        let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
 
         let witness = witness.transpose_vec(self.quorum as usize);
 
@@ -187,7 +187,10 @@ impl Relation for Certificate {
 
             // ---------------------- Check Lottery Eligibility ----------------------
             {
-                let ev = std_lib.poseidon(layouter, &[msg.clone(), sigma_x, sigma_y, index])?;
+                let ev = std_lib.poseidon(
+                    layouter,
+                    &[dst_lottery.clone(), msg.clone(), sigma_x, sigma_y, index],
+                )?;
                 let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
                 std_lib.assert_false(layouter, &is_less)?;
             }
