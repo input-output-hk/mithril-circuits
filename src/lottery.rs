@@ -1,4 +1,4 @@
-use crate::{HashCPU, JubjubBase, Msg, PoseidonHash, Signature, Target};
+use crate::{HashCPU, JubjubBase, Msg, PoseidonHash, Signature, Target, DST_LOTTERY};
 use ff::Field;
 use rug::{Float, Integer, float::Round, integer::Order, ops::Pow};
 use std::cmp::Ordering;
@@ -76,7 +76,7 @@ pub fn check_index(
 
     let idx = F::from(index as u64);
     let (sigma_x, sigma_y) = sig.sigma();
-    let ev = PoseidonHash::hash(&[msg, sigma_x, sigma_y, idx]);
+    let ev = PoseidonHash::hash(&[DST_LOTTERY, msg, sigma_x, sigma_y, idx]);
 
     // check if ev <= target
     if ev > target {
