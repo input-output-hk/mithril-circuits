@@ -16,6 +16,11 @@ pub enum LotteryError {
     SerializationError,
 }
 
+
+/// Computes the target of a party given the parameter phi_f, the total stake
+/// and the party's stake.
+/// This target is used within the circuit to prevent having to use floating point
+/// arithmetic.
 pub fn target(phi_f: f64, stake: Stake, total_stake: Stake) -> Target {
     // modulus - 1
     let ev_max = -F::ONE;
@@ -63,6 +68,7 @@ pub fn target(phi_f: f64, stake: Stake, total_stake: Stake) -> Target {
     target
 }
 
+/// Modified version of the eligibility check in the mithril-stm library
 pub fn check_index(
     sig: &Signature,
     index: u32,

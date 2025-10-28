@@ -49,6 +49,10 @@ pub fn div_rem_native_by_base(
     Ok((q, r))
 }
 
+/// Compares two values from the Jubjub scalar field and return a bit 
+/// 1 indicating x < y and 0 otherwise.
+/// Does the comparison by splitting both value into limbs of 128 bits
+/// and comparing them.
 // Compare x < y where x, y are 255-bit
 pub fn lower_than_native(
     std_lib: &ZkStdLib,
