@@ -142,7 +142,7 @@ impl Relation for Certificate {
             }
 
             // ---------------------- Verify Signature ----------------------
-            let (sigma_x, sigma_y) = {
+            {
                 // compute R1
                 let cap_r_1 = std_lib.jubjub().msm(
                     layouter,
@@ -182,11 +182,12 @@ impl Relation for Certificate {
                     ],
                 )?;
                 std_lib.assert_equal(layouter, &c_native, &c_prime)?;
-                (sigma_x, sigma_y)
-            };
+            }
 
             // ---------------------- Check Lottery Eligibility ----------------------
             {
+                let sigma_x = std_lib.jubjub().x_coordinate(&sigma);
+                let sigma_y = std_lib.jubjub().y_coordinate(&sigma);
                 let ev = std_lib.poseidon(
                     layouter,
                     &[dst_lottery.clone(), msg.clone(), sigma_x, sigma_y, index],
