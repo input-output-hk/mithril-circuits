@@ -208,10 +208,12 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: None,
+            sha256: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
+            nr_pow2range_cols: 1,
+            automaton: false,
         }
     }
 
@@ -255,6 +257,7 @@ mod tests {
     use ff::Field;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
     use rand_chacha::ChaCha20Rng;
@@ -310,6 +313,8 @@ mod tests {
             // print circuit size
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
+            let circuit_model = circuit_model::<_, 48, 32>(&circuit);
+            println!("{:?}", circuit_model);
             let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
             println!("{:?}", cost);
         }
@@ -367,6 +372,7 @@ mod tests {
                 &srs.verifier_params(),
                 &vk,
                 &instance,
+                None,
                 &proof
             )
             .is_ok()

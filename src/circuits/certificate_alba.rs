@@ -415,10 +415,12 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: None,
+            sha256: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
+            nr_pow2range_cols: 1,
+            automaton: false,
         }
     }
 
@@ -584,7 +586,7 @@ mod tests {
 
     #[test]
     fn test_alba_certificate() {
-        const K: u32 = 17;
+        const K: u32 = 18;
         // let srs = filecoin_srs(K);
         let srs = open(K);
 
@@ -656,6 +658,7 @@ mod tests {
                 &srs.verifier_params(),
                 &vk,
                 &instance,
+                None,
                 &proof
             )
             .is_ok()

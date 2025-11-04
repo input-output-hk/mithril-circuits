@@ -14,9 +14,10 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
-midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
-midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "c88a50c2169f060120a52ad0980de90f08bc9535" }
+midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", tag = "midnight-proofs-v0.5.1" }
+midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", tag = "midnight-proofs-v0.5.1" }
+midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", tag = "midnight-proofs-v0.5.1" }
+
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"

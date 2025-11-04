@@ -208,6 +208,7 @@ mod tests {
     };
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
@@ -243,8 +244,12 @@ mod tests {
         //   let srs = open(self_k);
         let srs = filecoin_srs(self_k);
 
-        let cost = CircuitCost::<C, _>::measure(self_k, &default_ivc_circuit);
-        println!("Circuit cost: {:?}", cost);
+        {
+            let circuit_model = circuit_model::<_, 48, 32>(&default_ivc_circuit);
+            println!("{:?}", circuit_model);
+            let cost = CircuitCost::<C, _>::measure(self_k, &default_ivc_circuit);
+            println!("{:?}", cost);
+        }
 
         let start = Instant::now();
         let vk = keygen_vk_with_k(&srs, &default_ivc_circuit, self_k).unwrap();
