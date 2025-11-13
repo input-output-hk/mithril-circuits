@@ -42,7 +42,10 @@ use midnight_circuits::{
         HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions, ZeroInstructions,
         hash::HashCPU,
     },
-    types::{AssignedBit, AssignedNative, AssignedNativePoint, ComposableChip, Instantiable},
+    types::{
+        AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint, ComposableChip,
+        Instantiable,
+    },
     verifier::{
         self, Accumulator, AssignedAccumulator, AssignedVk, BlstrsEmulation, Msm, SelfEmulation,
         VerifierGadget,

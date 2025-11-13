@@ -493,6 +493,7 @@ mod tests {
     use midnight_circuits::compact_std_lib;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
     use rand_chacha::ChaCha20Rng;
@@ -624,6 +625,8 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
+            let circuit_model = circuit_model::<_, 48, 32>(&circuit);
+            println!("{:?}", circuit_model);
             let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
             println!("{:?}", cost);
         }

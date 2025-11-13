@@ -617,7 +617,6 @@ dependencies = [
  "blake2b_simd",
  "blst",
  "criterion",
- "digest",
  "ff",
  "group",
  "halo2curves",

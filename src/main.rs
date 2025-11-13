@@ -1,4 +1,5 @@
 use rand::rngs::OsRng;
+use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
@@ -6,7 +7,9 @@ use midnight_proofs::poly::kzg::params::ParamsKZG;
 use midnight_proofs::utils::SerdeFormat;
 use mithril_circuits::Bls12;
 
-// create unsafe params for tests
+// Create unsafe params for tests
+// Usage: cargo run --release -- <k>
+
 fn create(k: u32) {
     let path = format!("examples/assets/params_kzg_unsafe_{}", k);
     // Step 1: Create an instance of ParamsKZG
@@ -35,6 +38,19 @@ fn open(k: u32) -> ParamsKZG<Bls12> {
 }
 
 fn main() {
-    create(15);
-    open(15);
+    // Retrieve command-line arguments
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: {} <k>", args[0]);
+        std::process::exit(1);
+    }
+
+    // Parse the first argument as a u32
+    let k: u32 = args[1]
+        .parse()
+        .expect("Invalid value for k, must be an integer");
+
+    create(k);
+    open(k);
 }
