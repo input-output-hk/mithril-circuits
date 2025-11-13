@@ -108,13 +108,18 @@ impl Relation for Certificate {
             std_lib.assign_as_public_input(layouter, instance.map(|(_, x)| x))?;
 
         // Compute H_1(msg)
-        let hash = std_lib.hash_to_curve(layouter, &[msg.clone()])?;
+        let hash = std_lib.hash_to_curve(layouter, &[merkle_root.clone(), msg.clone()])?;
 
         let generator: AssignedNativePoint<Jubjub> = std_lib
             .jubjub()
             .assign_fixed(layouter, <JubjubSubgroup as Group>::generator())?;
 
         let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
+        let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
+        let lottery_prefix = std_lib.poseidon(
+            layouter,
+            &[dst_lottery.clone(), merkle_root.clone(), msg.clone()],
+        )?;
 
         let lottery_index_bound = BigUint::from(self.num_lotteries as u64);
         let alba_search_width =
@@ -150,7 +155,6 @@ impl Relation for Certificate {
         }
 
         // ---------------------- Verify Proofs ----------------------
-        let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
         let dst_alba_round: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_ALBA_ROUND)?;
         let dst_alba_bin: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_ALBA_BIN)?;
 
@@ -295,8 +299,7 @@ impl Relation for Certificate {
                 let ev = std_lib.poseidon(
                     layouter,
                     &[
-                        dst_lottery.clone(),
-                        msg.clone(),
+                        lottery_prefix.clone(),
                         sigma_x,
                         sigma_y,
                         lottery_index.clone(),
@@ -535,8 +538,8 @@ mod tests {
         for i in 0..num_signers {
             let usk = sks[i].clone();
             let uvk = leaves[i].0;
-            let sig = usk.sign(msg, &mut OsRng);
-            sig.verify(msg, &uvk).unwrap();
+            let sig = usk.sign(&[merkle_root, msg], &mut OsRng);
+            sig.verify(&[merkle_root, msg], &uvk).unwrap();
 
             let merkle_path = merkle_tree.get_path(i);
             let computed_root = merkle_path.compute_root(leaves[i]);

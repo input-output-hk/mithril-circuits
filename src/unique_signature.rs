@@ -26,11 +26,11 @@ impl SigningKey {
         SigningKey(sk)
     }
 
-    pub fn sign(&self, msg: JubjubBase, rng: &mut (impl RngCore + CryptoRng)) -> Signature {
+    pub fn sign(&self, msg: &[JubjubBase], rng: &mut (impl RngCore + CryptoRng)) -> Signature {
         let g = JubjubSubgroup::generator();
         let vk = &g * &self.0;
 
-        let hash = JubjubHashToCurve::hash_to_curve(&[msg]);
+        let hash = JubjubHashToCurve::hash_to_curve(msg);
         let sigma = &hash * &self.0;
         let r = JubjubScalar::random(rng);
         let cap_r_1 = &hash * &r;
@@ -63,13 +63,13 @@ impl SigningKey {
 
     pub fn sign_long(
         &self,
-        msg: JubjubBase,
+        msg: &[JubjubBase],
         rng: &mut (impl RngCore + CryptoRng),
     ) -> LongSignature {
         let g = JubjubSubgroup::generator();
         let vk = &g * &self.0;
 
-        let hash = JubjubHashToCurve::hash_to_curve(&[msg]);
+        let hash = JubjubHashToCurve::hash_to_curve(msg);
         let sigma = &hash * &self.0;
         let r = JubjubScalar::random(rng);
         let cap_r_1 = &hash * &r;
@@ -166,9 +166,9 @@ pub struct Signature {
 
 impl Signature {
     /// Verify a signature against a verification key.
-    pub fn verify(&self, msg: JubjubBase, vk: &VerificationKey) -> Result<(), SignatureError> {
+    pub fn verify(&self, msg: &[JubjubBase], vk: &VerificationKey) -> Result<(), SignatureError> {
         let g = JubjubSubgroup::generator();
-        let hash = JubjubHashToCurve::hash_to_curve(&[msg]);
+        let hash = JubjubHashToCurve::hash_to_curve(msg);
         let c_scalar = jubjub_base_to_scalar(self.c);
 
         let (hx, hy) = get_coordinates(hash);
@@ -214,9 +214,9 @@ pub struct LongSignature {
 }
 
 impl LongSignature {
-    pub fn verify(&self, msg: JubjubBase, vk: &VerificationKey) -> Result<(), SignatureError> {
+    pub fn verify(&self, msg: &[JubjubBase], vk: &VerificationKey) -> Result<(), SignatureError> {
         let g = JubjubSubgroup::generator();
-        let hash = JubjubHashToCurve::hash_to_curve(&[msg]);
+        let hash = JubjubHashToCurve::hash_to_curve(msg);
         let (hx, hy) = get_coordinates(hash);
         let (vk_x, vk_y) = get_coordinates(vk.0);
         let (sigma_x, sigma_y) = get_coordinates(self.sigma);
@@ -297,7 +297,7 @@ mod tests {
         let msg = JubjubBase::random(&mut rng);
 
         // Sign the message
-        let signature = sk.sign(msg, &mut rng);
+        let signature = sk.sign(&[msg], &mut rng);
 
         // Ensure the components of the signature are non-default values
         assert_ne!(
@@ -316,7 +316,9 @@ mod tests {
             "Signature c component should not be zero."
         );
 
-        signature.verify(msg, &VerificationKey::from(&sk)).unwrap();
+        signature
+            .verify(&[msg], &VerificationKey::from(&sk))
+            .unwrap();
     }
 
     #[test]
@@ -327,11 +329,11 @@ mod tests {
         let vk: VerificationKey = (&sk).into();
 
         // Generate signature and tamper with it
-        let mut signature = sk.sign(msg, &mut rng);
+        let mut signature = sk.sign(&[msg], &mut rng);
         signature.s = JubjubScalar::random(&mut rng); // Modify `s` component
 
         // Verify the modified signature
-        let result = signature.verify(msg, &vk);
+        let result = signature.verify(&[msg], &vk);
         assert!(
             result.is_err(),
             "Invalid signature should fail verification, but it passed."
@@ -339,19 +341,19 @@ mod tests {
     }
 
     #[test]
-    fn test_long_signature_verification_valid() {
+    fn test_signature_long_verification_valid() {
         let mut rng = OsRng;
         let sk = SigningKey::generate(&mut rng);
         let vk: VerificationKey = (&sk).into();
         let msg = JubjubBase::random(&mut rng);
 
         // Generate a regular Signature and convert it to SignatureLong
-        let sig_long = sk.sign_long(msg, &mut rng);
+        let sig_long = sk.sign_long(&[msg], &mut rng);
         // Verify the SignatureLong
-        assert!(sig_long.verify(msg, &vk).is_ok());
+        assert!(sig_long.verify(&[msg], &vk).is_ok());
 
         let hash_msg = JubjubHashToCurve::hash_to_curve(&[msg]);
         let sig = sig_long.to_short_signature(&hash_msg, &vk);
-        assert!(sig.verify(msg, &vk).is_ok());
+        assert!(sig.verify(&[msg], &vk).is_ok());
     }
 }

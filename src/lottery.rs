@@ -1,4 +1,4 @@
-use crate::{HashCPU, JubjubBase, Msg, PoseidonHash, Signature, Target, DST_LOTTERY};
+use crate::{DST_LOTTERY, HashCPU, JubjubBase, Msg, PoseidonHash, Signature, Target};
 use ff::Field;
 use rug::{Float, Integer, float::Round, integer::Order, ops::Pow};
 use std::cmp::Ordering;
@@ -63,11 +63,18 @@ pub fn target(phi_f: f64, stake: Stake, total_stake: Stake) -> Target {
     target
 }
 
+pub fn lottery_prefix(msg: &[JubjubBase]) -> JubjubBase {
+    let mut prefix = vec![DST_LOTTERY];
+    prefix.extend_from_slice(msg);
+    let prefix_hash = PoseidonHash::hash(&prefix);
+    prefix_hash
+}
+
 pub fn check_index(
     sig: &Signature,
     index: u32,
     m: u32,
-    msg: Msg,
+    prefix: JubjubBase,
     target: Target,
 ) -> Result<(), LotteryError> {
     if index > m {
@@ -76,7 +83,7 @@ pub fn check_index(
 
     let idx = F::from(index as u64);
     let (sigma_x, sigma_y) = sig.sigma();
-    let ev = PoseidonHash::hash(&[DST_LOTTERY, msg, sigma_x, sigma_y, idx]);
+    let ev = PoseidonHash::hash(&[prefix, sigma_x, sigma_y, idx]);
 
     // check if ev <= target
     if ev > target {
@@ -128,13 +135,14 @@ mod tests {
         println!("Target = {:?}", target);
 
         let sk = SigningKey::generate(&mut OsRng);
-        let msg = Msg::random(&mut OsRng);
-        let sig = sk.sign(msg, &mut OsRng);
+        let msg = JubjubBase::random(&mut OsRng);
+        let sig = sk.sign(&[msg], &mut OsRng);
 
         let m = 100;
         let mut counter = 0;
+        let prefix = lottery_prefix(&[msg]);
         for i in 0..m {
-            if check_index(&sig, i, m, msg, target).is_ok() {
+            if check_index(&sig, i, m, prefix, target).is_ok() {
                 println!("Index: {}", i);
                 counter += 1;
             }

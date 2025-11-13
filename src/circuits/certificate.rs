@@ -53,13 +53,17 @@ impl Relation for Certificate {
             std_lib.assign_as_public_input(layouter, instance.map(|(_, x)| x))?;
 
         // Compute H_1(msg)
-        let hash = std_lib.hash_to_curve(layouter, &[msg.clone()])?;
+        let hash = std_lib.hash_to_curve(layouter, &[merkle_root.clone(), msg.clone()])?;
 
         let generator: AssignedNativePoint<Jubjub> = std_lib
             .jubjub()
             .assign_fixed(layouter, <JubjubSubgroup as Group>::generator())?;
         let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
         let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
+        let lottery_prefix = std_lib.poseidon(
+            layouter,
+            &[dst_lottery.clone(), merkle_root.clone(), msg.clone()],
+        )?;
 
         let witness = witness.transpose_vec(self.quorum as usize);
 
@@ -188,10 +192,8 @@ impl Relation for Certificate {
             {
                 let sigma_x = std_lib.jubjub().x_coordinate(&sigma);
                 let sigma_y = std_lib.jubjub().y_coordinate(&sigma);
-                let ev = std_lib.poseidon(
-                    layouter,
-                    &[dst_lottery.clone(), msg.clone(), sigma_x, sigma_y, index],
-                )?;
+                let ev = std_lib
+                    .poseidon(layouter, &[lottery_prefix.clone(), sigma_x, sigma_y, index])?;
                 let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
                 std_lib.assert_false(layouter, &is_less)?;
             }
@@ -338,8 +340,8 @@ mod tests {
             let ii = i % num_signers;
             let usk = sks[ii].clone();
             let uvk = leaves[ii].0;
-            let sig = usk.sign(msg, &mut OsRng);
-            sig.verify(msg, &uvk).unwrap();
+            let sig = usk.sign(&[merkle_root, msg], &mut OsRng);
+            sig.verify(&[merkle_root, msg], &uvk).unwrap();
 
             let merkle_path = merkle_tree.get_path(ii);
             let computed_root = merkle_path.compute_root(leaves[ii]);

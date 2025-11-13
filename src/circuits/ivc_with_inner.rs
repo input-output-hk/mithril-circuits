@@ -325,8 +325,8 @@ mod tests {
         for i in 0..quorum as usize {
             let usk = sks[i].clone();
             let uvk = leaves[i].0;
-            let sig = usk.sign(msg, &mut OsRng);
-            sig.verify(msg, &uvk).unwrap();
+            let sig = usk.sign(&[merkle_root, msg], &mut OsRng);
+            sig.verify(&[merkle_root, msg], &uvk).unwrap();
 
             let merkle_path = merkle_tree.get_path(i);
             let computed_root = merkle_path.compute_root(leaves[i]);
