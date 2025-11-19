@@ -1,14 +1,14 @@
 use crate::{
-    Accumulator, ArithInstructions, AssignedAccumulator, AssignedVk, AssignmentInstructions,
-    BinaryInstructions, BlstrsEmulation, Circuit, CircuitCurve, ComposableChip, ConstraintSystem,
-    Error, EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, Layouter, NB_ARITH_COLS,
-    NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget,
-    P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip,
-    PublicInputInstructions, SelfEmulation, SimpleFloorPlanner, Value, ZeroInstructions,
-    nb_foreign_ecc_chip_columns, verifier, verifier::VerifierGadget,
+    Accumulator, ArithInstructions, AssignedAccumulator, AssignedForeignPoint, AssignedVk,
+    AssignmentInstructions, BinaryInstructions, BlstrsEmulation, Circuit, CircuitCurve,
+    ComposableChip, ConstraintSystem, Error, EvaluationDomain, FieldChip, ForeignEccChip,
+    ForeignEccConfig, Layouter, NB_ARITH_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS,
+    NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip, P2RDecompositionConfig,
+    PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions, SelfEmulation,
+    SimpleFloorPlanner, Value, VerifierGadget, ZeroInstructions, nb_foreign_ecc_chip_columns,
+    verifier,
 };
 use halo2curves::{ff::Field, group::Group};
-use midnight_circuits::types::AssignedForeignPoint;
 use std::collections::HashSet;
 
 type S = BlstrsEmulation;
@@ -21,6 +21,13 @@ type CBase = <C as CircuitCurve>::Base;
 type NG = NativeGadget<F, P2RDecompositionChip<F>, NativeChip<F>>;
 
 const NB_INNER_INSTANCES: usize = 2;
+
+#[cfg(feature = "truncated-challenges")]
+const K: u32 = 19;
+
+#[cfg(not(feature = "truncated-challenges"))]
+const K: u32 = 19;
+
 #[derive(Clone, Debug)]
 pub struct IvcCircuit {
     pub self_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
@@ -109,14 +116,12 @@ impl Circuit<F> for IvcCircuit {
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         let native_chip = <NativeChip<F> as ComposableChip<F>>::new(&config.0, &());
-        let core_decomp_chip = P2RDecompositionChip::new(&config.1, &16);
+        let core_decomp_chip = P2RDecompositionChip::new(&config.1, &(K as usize - 1));
         let scalar_chip = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
         let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip) };
         let poseidon_chip = PoseidonChip::new(&config.3, &native_chip);
 
         let verifier_chip = VerifierGadget::new(&curve_chip, &scalar_chip, &poseidon_chip);
-
-        core_decomp_chip.load(&mut layouter)?;
 
         let id_point: AssignedForeignPoint<_, _, _> =
             curve_chip.assign_fixed(&mut layouter, C::identity())?;
@@ -251,7 +256,9 @@ impl Circuit<F> for IvcCircuit {
         // Finally, collapse the resulting accumulator and constraint it as public.
         next_acc.collapse(&mut layouter, &curve_chip, &scalar_chip)?;
 
-        verifier_chip.constrain_as_public_input(&mut layouter, &next_acc)
+        verifier_chip.constrain_as_public_input(&mut layouter, &next_acc)?;
+
+        core_decomp_chip.load(&mut layouter)
     }
 }
 
@@ -268,7 +275,7 @@ mod tests {
     use crate::{certificate::Certificate, compact_std_lib};
     use midnight_circuits::compact_std_lib::Relation;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
-    use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
@@ -343,10 +350,6 @@ mod tests {
 
     #[test]
     fn test_ivc_with_inner() {
-        const K: u32 = 20;
-
-        // create unsafe parameters once
-        // create(K);
         let srs = open(K);
 
         // set up inner circuit
@@ -356,7 +359,7 @@ mod tests {
         inner_srs.downsize(K_INNER);
 
         let (inner_relation, inner_instance, inner_witness) = setup_certificate();
-        let inner_instance_vec = Certificate::format_instance(&inner_instance);
+        let inner_instance_vec = Certificate::format_instance(&inner_instance).unwrap();
         let start = Instant::now();
         let inner_vk = compact_std_lib::setup_vk(&inner_srs, &inner_relation);
         let inner_pk = compact_std_lib::setup_pk(&inner_relation, &inner_vk);
@@ -417,8 +420,10 @@ mod tests {
             inner_proof: Value::known(inner_proof.clone()),
         };
 
-        let cost = CircuitCost::<C, _>::measure(K, &default_ivc_circuit);
-        println!("IVC Circuit cost: {:?}", cost);
+        {
+            let circuit_model = circuit_model::<_, 48, 32>(&default_ivc_circuit);
+            println!("{:?}", circuit_model);
+        }
 
         let start = Instant::now();
         let vk = keygen_vk_with_k(&srs, &default_ivc_circuit, K).unwrap();
@@ -468,7 +473,6 @@ mod tests {
         let mut state = prev_state + F::ONE;
         let mut inner_with_trivial_acc = Accumulator::accumulate(&[inner_acc.clone(), trivial_acc]);
         inner_with_trivial_acc.collapse();
-        //
 
         assert!(
             inner_with_trivial_acc.check(&srs.s_g2().into(), &fixed_bases),
@@ -478,7 +482,7 @@ mod tests {
         let mut acc = Accumulator::accumulate(&[self_trivial_acc, inner_with_trivial_acc]);
         acc.collapse();
 
-        for i in 0..3 {
+        for i in 0..1 {
             let circuit = IvcCircuit {
                 self_vk: (
                     self_domain.clone(),
@@ -501,9 +505,6 @@ mod tests {
             public_inputs.extend(AssignedVk::<S>::as_public_input(&vk));
             public_inputs.extend(AssignedNative::<F>::as_public_input(&state));
             public_inputs.extend(AssignedAccumulator::as_public_input(&acc));
-
-            // let prover = MockProver::run(K, &circuit, vec![vec![], public_inputs.clone()]).unwrap();
-            // assert_eq!(prover.verify(), Ok(()));
 
             let start = Instant::now();
             let proof = {

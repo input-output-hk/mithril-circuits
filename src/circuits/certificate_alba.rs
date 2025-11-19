@@ -2,11 +2,11 @@ use crate::merkle_tree::{MTLeaf, MerklePath};
 use crate::utils::{big_to_fe, split};
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
-    AssignmentInstructions, ControlFlowInstructions, ConversionInstructions, DST_ALBA_BIN,
-    DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY, DST_SIGNATURE, EccInstructions, Error, Jubjub,
-    JubjubBase, JubjubSubgroup, Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions,
-    RangeCheckInstructions, Relation, ScalarVar, Signature, Value, ZkStdLib, ZkStdLibArch,
-    div_rem_native_by_base, lower_than_native,
+    AssignedScalarOfNativeCurve, AssignmentInstructions, ControlFlowInstructions,
+    ConversionInstructions, DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY,
+    DST_SIGNATURE, EccInstructions, Error, Jubjub, JubjubBase, JubjubSubgroup, Layouter,
+    LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, RangeCheckInstructions, Relation,
+    Signature, Value, ZkStdLib, ZkStdLibArch, div_rem_native_by_base, lower_than_native,
 };
 use ff::{Field, PrimeField};
 use group::Group;
@@ -89,8 +89,8 @@ impl Relation for Certificate {
         AlbaProofMeta,
     );
 
-    fn format_instance(instance: &Self::Instance) -> Vec<F> {
-        vec![instance.0, instance.1]
+    fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
+        Ok(vec![instance.0, instance.1])
     }
 
     fn circuit(
@@ -219,11 +219,12 @@ impl Relation for Certificate {
             let sigma: AssignedNativePoint<_> = std_lib
                 .jubjub()
                 .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.sigma))?;
-            let s: ScalarVar<Jubjub> = std_lib
+            let s: AssignedScalarOfNativeCurve<Jubjub> = std_lib
                 .jubjub()
                 .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.s))?;
             let c_native = std_lib.assign(layouter, wit.map(|(_, _, sig, _)| sig.c))?;
-            let c: ScalarVar<Jubjub> = std_lib.jubjub().convert(layouter, &c_native)?;
+            let c: AssignedScalarOfNativeCurve<Jubjub> =
+                std_lib.jubjub().convert(layouter, &c_native)?;
 
             let vk_x = std_lib.jubjub().x_coordinate(&vk);
             let vk_y = std_lib.jubjub().y_coordinate(&vk);
@@ -418,10 +419,13 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: None,
+            sha256: false,
+            sha512: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
+            nr_pow2range_cols: 2,
+            automaton: false,
         }
     }
 
@@ -489,11 +493,10 @@ mod tests {
     use super::*;
     use crate::alba::{Element, Params as AlbaProofParams, Proof as AlbaProof, target};
     use crate::merkle_tree::MerkleTree;
-    use crate::{Bls12, BlstG1, MidnightCircuit, SigningKey, VerificationKey};
+    use crate::{Bls12, MidnightCircuit, SigningKey, VerificationKey};
     use ff::Field;
     use midnight_circuits::compact_std_lib;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
-    use midnight_proofs::dev::CircuitCost;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
     use rand_chacha::ChaCha20Rng;
@@ -625,8 +628,7 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
-            let cost = CircuitCost::<BlstG1, _>::measure(K, &circuit);
-            println!("{:?}", cost);
+            println!("{:?}", compact_std_lib::cost_model(&relation));
         }
 
         let start = Instant::now();
@@ -659,6 +661,7 @@ mod tests {
                 &srs.verifier_params(),
                 &vk,
                 &instance,
+                None,
                 &proof
             )
             .is_ok()

@@ -4,8 +4,8 @@ use crate::{
     Error, EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, Layouter, NB_ARITH_COLS,
     NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget,
     P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip,
-    PublicInputInstructions, SelfEmulation, SimpleFloorPlanner, Value, ZeroInstructions,
-    nb_foreign_ecc_chip_columns, verifier, verifier::VerifierGadget,
+    PublicInputInstructions, SelfEmulation, SimpleFloorPlanner, Value, VerifierGadget,
+    ZeroInstructions, nb_foreign_ecc_chip_columns, verifier,
 };
 use halo2curves::{ff::Field, group::Group};
 
@@ -17,6 +17,12 @@ type E = <S as SelfEmulation>::Engine;
 type CBase = <C as CircuitCurve>::Base;
 
 type NG = NativeGadget<F, P2RDecompositionChip<F>, NativeChip<F>>;
+
+#[cfg(feature = "truncated-challenges")]
+const K: u32 = 18;
+
+#[cfg(not(feature = "truncated-challenges"))]
+const K: u32 = 19;
 
 #[derive(Clone, Debug)]
 pub struct IvcCircuit {
@@ -102,14 +108,12 @@ impl Circuit<F> for IvcCircuit {
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         let native_chip = <NativeChip<F> as ComposableChip<F>>::new(&config.0, &());
-        let core_decomp_chip = P2RDecompositionChip::new(&config.1, &16);
+        let core_decomp_chip = P2RDecompositionChip::new(&config.1, &(K as usize - 1));
         let scalar_chip = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
         let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip) };
         let poseidon_chip = PoseidonChip::new(&config.3, &native_chip);
 
         let verifier_chip = VerifierGadget::new(&curve_chip, &scalar_chip, &poseidon_chip);
-
-        core_decomp_chip.load(&mut layouter)?;
 
         let self_vk_name = "self_vk";
         let (self_domain, self_cs, self_vk_value) = &self.self_vk;
@@ -195,7 +199,9 @@ impl Circuit<F> for IvcCircuit {
         // Finally, collapse the resulting accumulator and constraint it as public.
         next_acc.collapse(&mut layouter, &curve_chip, &scalar_chip)?;
 
-        verifier_chip.constrain_as_public_input(&mut layouter, &next_acc)
+        verifier_chip.constrain_as_public_input(&mut layouter, &next_acc)?;
+
+        core_decomp_chip.load(&mut layouter)
     }
 }
 
@@ -207,7 +213,7 @@ mod tests {
         ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k, prepare,
     };
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
-    use midnight_proofs::dev::CircuitCost;
+    use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
@@ -226,8 +232,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ivc() {
-        let self_k = 19;
+    fn test_ivc_only() {
+        let self_k = K;
 
         let mut self_cs = ConstraintSystem::default();
         configure_ivc_circuit(&mut self_cs);
@@ -240,11 +246,13 @@ mod tests {
             prev_acc: Value::unknown(),
         };
 
-        //   let srs = open(self_k);
-        let srs = filecoin_srs(self_k);
+        // let srs = filecoin_srs(self_k);
+        let srs = open(self_k);
 
-        let cost = CircuitCost::<C, _>::measure(self_k, &default_ivc_circuit);
-        println!("Circuit cost: {:?}", cost);
+        {
+            let circuit_model = circuit_model::<_, 48, 32>(&default_ivc_circuit);
+            println!("{:?}", circuit_model);
+        }
 
         let start = Instant::now();
         let vk = keygen_vk_with_k(&srs, &default_ivc_circuit, self_k).unwrap();

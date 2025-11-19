@@ -21,7 +21,6 @@ use midnight_circuits::{
         foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
         hash_to_curve::HashToCurveGadget,
         native::EccChip,
-        native::ScalarVar,
     },
     field::{
         NativeChip, NativeConfig, NativeGadget,
@@ -42,7 +41,10 @@ use midnight_circuits::{
         HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions, ZeroInstructions,
         hash::HashCPU,
     },
-    types::{AssignedBit, AssignedNative, AssignedNativePoint, ComposableChip, Instantiable},
+    types::{
+        AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
+        AssignedScalarOfNativeCurve, ComposableChip, Instantiable,
+    },
     verifier::{
         self, Accumulator, AssignedAccumulator, AssignedVk, BlstrsEmulation, Msm, SelfEmulation,
         VerifierGadget,
