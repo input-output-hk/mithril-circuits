@@ -1,20 +1,21 @@
-use crate::merkle_tree::{MTLeaf, MerklePath};
-use crate::utils::{big_to_fe, split};
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
-    AssignedScalarOfNativeCurve, AssignmentInstructions, ControlFlowInstructions,
+    AssignedScalarOfNativeCurve, AssignmentInstructions, CircuitCurve, ControlFlowInstructions,
     ConversionInstructions, DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY,
-    DST_SIGNATURE, EccInstructions, Error, Jubjub, JubjubBase, JubjubSubgroup, Layouter,
-    LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, RangeCheckInstructions, Relation,
-    Signature, Value, ZkStdLib, ZkStdLibArch, div_rem_native_by_base, lower_than_native,
+    DST_SIGNATURE, EccInstructions, Error, Jubjub, JubjubBase, Layouter, LotteryIndex, MerkleRoot,
+    Msg, PublicInputInstructions, RangeCheckInstructions, Relation, Signature, Value, ZkStdLib,
+    ZkStdLibArch,
+    circuits::{C, F},
+    div_rem_native_by_base,
+    merkle_tree::{MTLeaf, MerklePath},
+    utils::{big_to_fe, split},
+    verify_lottery, verify_merkle_path, verify_signature,
 };
 use ff::{Field, PrimeField};
 use group::Group;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One};
 use std::ops::Div;
-
-type F = JubjubBase;
 
 // Alba truncated hash length
 const ALBA_NUM_LOW_BITS: u32 = 128;
@@ -107,12 +108,13 @@ impl Relation for Certificate {
         let msg: AssignedNative<F> =
             std_lib.assign_as_public_input(layouter, instance.map(|(_, x)| x))?;
 
-        // Compute H_1(msg)
+        // Compute H_1(merkle_root, msg)
         let hash = std_lib.hash_to_curve(layouter, &[merkle_root.clone(), msg.clone()])?;
 
-        let generator: AssignedNativePoint<Jubjub> = std_lib
-            .jubjub()
-            .assign_fixed(layouter, <JubjubSubgroup as Group>::generator())?;
+        let generator: AssignedNativePoint<Jubjub> = std_lib.jubjub().assign_fixed(
+            layouter,
+            <C as CircuitCurve>::CryptographicGroup::generator(),
+        )?;
 
         let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
         let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
@@ -211,7 +213,7 @@ impl Relation for Certificate {
             )?;
 
             // Assert merkle positions are binary values.
-            let assigned_merkle_positions_bits = assigned_merkle_positions
+            let assigned_merkle_positions = assigned_merkle_positions
                 .iter()
                 .map(|pos| std_lib.convert(layouter, pos))
                 .collect::<Result<Vec<AssignedBit<F>>, Error>>()?;
@@ -226,89 +228,37 @@ impl Relation for Certificate {
             let c: AssignedScalarOfNativeCurve<Jubjub> =
                 std_lib.jubjub().convert(layouter, &c_native)?;
 
-            let vk_x = std_lib.jubjub().x_coordinate(&vk);
-            let vk_y = std_lib.jubjub().y_coordinate(&vk);
+            verify_merkle_path(
+                std_lib,
+                layouter,
+                &vk,
+                &target,
+                &merkle_root,
+                &assigned_merkle_siblings,
+                &assigned_merkle_positions,
+            )?;
 
-            // ---------------------- Verify Merkle Path ----------------------
-            {
-                let leaf =
-                    std_lib.poseidon(layouter, &[vk_x.clone(), vk_y.clone(), target.clone()])?;
-                let root = assigned_merkle_siblings
-                    .iter()
-                    .zip(assigned_merkle_positions_bits.iter())
-                    .try_fold(leaf, |acc, (x, pos)| {
-                        // Choose the left child for hashing:
-                        // If pos is 1 (sibling on right) choose the current node else the sibling.
-                        let left = std_lib.select(layouter, pos, &acc, x)?;
+            verify_signature(
+                std_lib,
+                layouter,
+                &dst_signature,
+                &generator,
+                &vk,
+                &s,
+                &c,
+                &c_native,
+                &hash,
+                &sigma,
+            )?;
 
-                        // Choose the right child for hashing:
-                        // If pos is 1 (sibling on right) choose the sibling else the current node.
-                        let right = std_lib.select(layouter, pos, x, &acc)?;
-
-                        std_lib.poseidon(layouter, &[left, right])
-                    })?;
-                std_lib.assert_equal(layouter, &root, &merkle_root)?;
-            }
-
-            // ---------------------- Verify Signature ----------------------
-            {
-                // compute R1
-                let cap_r_1 = std_lib.jubjub().msm(
-                    layouter,
-                    &[s.clone(), c.clone()],
-                    &[hash.clone(), sigma.clone()],
-                )?;
-
-                // compute R2
-                let cap_r_2 = std_lib
-                    .jubjub()
-                    .msm(layouter, &[s, c], &[generator.clone(), vk])?;
-
-                // compute H2(g, H1(msg), vk, sigma, R1, R2)
-                let hx = std_lib.jubjub().x_coordinate(&hash);
-                let hy = std_lib.jubjub().y_coordinate(&hash);
-                let sigma_x = std_lib.jubjub().x_coordinate(&sigma);
-                let sigma_y = std_lib.jubjub().y_coordinate(&sigma);
-                let cap_r_1_x = std_lib.jubjub().x_coordinate(&cap_r_1);
-                let cap_r_1_y = std_lib.jubjub().y_coordinate(&cap_r_1);
-                let cap_r_2_x = std_lib.jubjub().x_coordinate(&cap_r_2);
-                let cap_r_2_y = std_lib.jubjub().y_coordinate(&cap_r_2);
-
-                let c_prime = std_lib.poseidon(
-                    layouter,
-                    &[
-                        dst_signature.clone(),
-                        hx,
-                        hy,
-                        vk_x,
-                        vk_y,
-                        sigma_x.clone(),
-                        sigma_y.clone(),
-                        cap_r_1_x,
-                        cap_r_1_y,
-                        cap_r_2_x,
-                        cap_r_2_y,
-                    ],
-                )?;
-                std_lib.assert_equal(layouter, &c_native, &c_prime)?;
-            }
-
-            // ---------------------- Check Lottery Eligibility ----------------------
-            {
-                let sigma_x = std_lib.jubjub().x_coordinate(&sigma);
-                let sigma_y = std_lib.jubjub().y_coordinate(&sigma);
-                let ev = std_lib.poseidon(
-                    layouter,
-                    &[
-                        lottery_prefix.clone(),
-                        sigma_x,
-                        sigma_y,
-                        lottery_index.clone(),
-                    ],
-                )?;
-                let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
-                std_lib.assert_false(layouter, &is_less)?;
-            }
+            verify_lottery(
+                std_lib,
+                layouter,
+                &lottery_prefix,
+                &sigma,
+                &lottery_index,
+                &target,
+            )?;
 
             //  ---------------------- Verify Alba Proof  ----------------------
             {

@@ -1,4 +1,4 @@
-use crate::{EDWARDS_D, JubjubAffine, JubjubBase, JubjubExtended, JubjubScalar, JubjubSubgroup};
+use crate::{EDWARDS_D, Jubjub, JubjubAffine, JubjubBase, JubjubScalar, JubjubSubgroup};
 use ff::{Field, PrimeField};
 use num_bigint::BigUint;
 use num_integer::Integer;
@@ -6,7 +6,7 @@ use num_traits::{Num, One, Zero};
 use subtle::{Choice, ConstantTimeEq};
 
 pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
-    let extended: JubjubExtended = point.into(); // Convert to JubjubExtended
+    let extended: Jubjub = point.into(); // Convert to JubjubExtended
     let affine: JubjubAffine = extended.into(); // Convert to JubjubAffine (affine coordinates)
     let x = affine.get_u(); // Get x-coordinate
     let y = affine.get_v(); // Get y-coordinate

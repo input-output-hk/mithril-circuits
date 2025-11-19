@@ -1,6 +1,6 @@
 use crate::{
-    DST_SIGNATURE, HashCPU, HashToCurveCPU, JubjubBase, JubjubExtended, JubjubHashToCurve,
-    JubjubScalar, JubjubSubgroup, PoseidonHash,
+    DST_SIGNATURE, HashCPU, HashToCurveCPU, Jubjub, JubjubBase, JubjubHashToCurve, JubjubScalar,
+    JubjubSubgroup, PoseidonHash,
     utils::{get_coordinates, is_on_curve, jubjub_base_to_scalar},
 };
 use ff::Field;
@@ -149,7 +149,7 @@ impl VerificationKey {
         }
 
         let point = JubjubSubgroup::from_raw_unchecked(u, v);
-        if !bool::from(JubjubExtended::from(point).is_prime_order()) {
+        if !bool::from(Jubjub::from(point).is_prime_order()) {
             return Err(SignatureError::SerializationError);
         }
 
