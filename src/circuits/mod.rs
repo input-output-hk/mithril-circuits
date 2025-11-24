@@ -18,7 +18,7 @@ pub mod ivc_with_inner;
 type F = JubjubBase;
 type C = Jubjub;
 
-pub fn div_rem_native_by_base(
+fn div_rem_native_by_base(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     x: &AssignedNative<F>,
@@ -50,8 +50,34 @@ pub fn div_rem_native_by_base(
     Ok((q, r))
 }
 
+// check if x = 0 mod n
+fn is_divisible_by_base(
+    std_lib: &ZkStdLib,
+    layouter: &mut impl Layouter<F>,
+    x: &AssignedNative<F>,
+    x_size_bound: u32,
+    base: u32,
+) -> Result<AssignedNative<F>, Error> {
+    assert!(x_size_bound < F::NUM_BITS);
+
+    let base_big = BigUint::from(base);
+    let q_value = x.value().map(|v| {
+        let (q, _) = fe_to_big(*v).div_rem(&base_big);
+        big_to_fe(q)
+    });
+
+    let q_bound = ((BigUint::one() << x_size_bound) + &base) / &base;
+    let q = std_lib.assign_lower_than_fixed(layouter, q_value, &q_bound)?;
+
+    let q_times_base =
+        std_lib.linear_combination(layouter, &[(F::from(base as u64), q.clone())], F::ZERO)?;
+    std_lib.assert_equal(layouter, x, &q_times_base)?;
+
+    Ok(q)
+}
+
 // Compare x < y where x, y are 255-bit
-pub fn lower_than_native(
+fn lower_than_native(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     x: &AssignedNative<F>,
@@ -98,33 +124,7 @@ pub fn lower_than_native(
     std_lib.or(layouter, &[is_less_high, low_less])
 }
 
-// check if x = 0 mod n
-pub fn is_divisible_by_base(
-    std_lib: &ZkStdLib,
-    layouter: &mut impl Layouter<F>,
-    x: &AssignedNative<F>,
-    x_size_bound: u32,
-    base: u32,
-) -> Result<AssignedNative<F>, Error> {
-    assert!(x_size_bound < F::NUM_BITS);
-
-    let base_big = BigUint::from(base);
-    let q_value = x.value().map(|v| {
-        let (q, _) = fe_to_big(*v).div_rem(&base_big);
-        big_to_fe(q)
-    });
-
-    let q_bound = ((BigUint::one() << x_size_bound) + &base) / &base;
-    let q = std_lib.assign_lower_than_fixed(layouter, q_value, &q_bound)?;
-
-    let q_times_base =
-        std_lib.linear_combination(layouter, &[(F::from(base as u64), q.clone())], F::ZERO)?;
-    std_lib.assert_equal(layouter, x, &q_times_base)?;
-
-    Ok(q)
-}
-
-pub fn verify_merkle_path(
+fn verify_merkle_path(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     vk: &AssignedNativePoint<C>,
@@ -154,7 +154,7 @@ pub fn verify_merkle_path(
     std_lib.assert_equal(layouter, &root, merkle_root)
 }
 
-pub fn verify_signature(
+fn verify_unique_signature(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     dst_signature: &AssignedNative<F>,
@@ -211,7 +211,7 @@ pub fn verify_signature(
     std_lib.assert_equal(layouter, c_native, &c_prime)
 }
 
-pub fn verify_lottery(
+fn verify_lottery(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     lottery_prefix: &AssignedNative<F>,

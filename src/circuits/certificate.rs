@@ -1,12 +1,11 @@
 use crate::{
-    AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
-    AssignedScalarOfNativeCurve, AssignmentInstructions, CircuitCurve, ControlFlowInstructions,
-    ConversionInstructions, DST_LOTTERY, DST_SIGNATURE, EccInstructions, Error, Layouter,
-    LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, Relation, Signature, Value, ZkStdLib,
-    ZkStdLibArch,
-    circuits::{C, F},
+    AssignedBit, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
+    AssignmentInstructions, CircuitCurve, ConversionInstructions, DST_LOTTERY,
+    DST_UNIQUE_SIGNATURE, Error, Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions,
+    Relation, Value, ZkStdLib, ZkStdLibArch,
+    circuits::{C, F, verify_lottery, verify_merkle_path, verify_unique_signature},
     merkle_tree::{MTLeaf, MerklePath},
-    verify_lottery, verify_merkle_path, verify_signature,
+    unique_signature::Signature,
 };
 use ff::Field;
 use group::Group;
@@ -60,7 +59,8 @@ impl Relation for Certificate {
             <C as CircuitCurve>::CryptographicGroup::generator(),
         )?;
 
-        let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
+        let dst_signature: AssignedNative<_> =
+            std_lib.assign_fixed(layouter, DST_UNIQUE_SIGNATURE)?;
         let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
         let lottery_prefix = std_lib.poseidon(
             layouter,
@@ -133,7 +133,7 @@ impl Relation for Certificate {
                 &assigned_merkle_positions,
             )?;
 
-            verify_signature(
+            verify_unique_signature(
                 std_lib,
                 layouter,
                 &dst_signature,
@@ -206,7 +206,10 @@ mod tests {
     use super::*;
     use crate::certificate::Certificate;
     use crate::merkle_tree::MerkleTree;
-    use crate::{Bls12, MidnightCircuit, SigningKey, VerificationKey, compact_std_lib};
+    use crate::{
+        Bls12, MidnightCircuit, compact_std_lib,
+        unique_signature::{SigningKey, VerificationKey},
+    };
     use ff::Field;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::poly::kzg::params::ParamsKZG;

@@ -1,15 +1,15 @@
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
-    AssignedScalarOfNativeCurve, AssignmentInstructions, CircuitCurve, ControlFlowInstructions,
-    ConversionInstructions, DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY,
-    DST_SIGNATURE, EccInstructions, Error, Jubjub, JubjubBase, Layouter, LotteryIndex, MerkleRoot,
-    Msg, PublicInputInstructions, RangeCheckInstructions, Relation, Signature, Value, ZkStdLib,
-    ZkStdLibArch,
-    circuits::{C, F},
-    div_rem_native_by_base,
+    AssignedScalarOfNativeCurve, AssignmentInstructions, CircuitCurve, ConversionInstructions,
+    DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY, DST_UNIQUE_SIGNATURE, Error, Jubjub,
+    Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, RangeCheckInstructions,
+    Relation, Value, ZkStdLib, ZkStdLibArch,
+    circuits::{
+        C, F, div_rem_native_by_base, verify_lottery, verify_merkle_path, verify_unique_signature,
+    },
     merkle_tree::{MTLeaf, MerklePath},
+    unique_signature::Signature,
     utils::{big_to_fe, split},
-    verify_lottery, verify_merkle_path, verify_signature,
 };
 use ff::{Field, PrimeField};
 use group::Group;
@@ -116,7 +116,8 @@ impl Relation for Certificate {
             <C as CircuitCurve>::CryptographicGroup::generator(),
         )?;
 
-        let dst_signature: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_SIGNATURE)?;
+        let dst_signature: AssignedNative<_> =
+            std_lib.assign_fixed(layouter, DST_UNIQUE_SIGNATURE)?;
         let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
         let lottery_prefix = std_lib.poseidon(
             layouter,
@@ -238,7 +239,7 @@ impl Relation for Certificate {
                 &assigned_merkle_positions,
             )?;
 
-            verify_signature(
+            verify_unique_signature(
                 std_lib,
                 layouter,
                 &dst_signature,
@@ -443,7 +444,10 @@ mod tests {
     use super::*;
     use crate::alba::{Element, Params as AlbaProofParams, Proof as AlbaProof, target};
     use crate::merkle_tree::MerkleTree;
-    use crate::{Bls12, MidnightCircuit, SigningKey, VerificationKey};
+    use crate::{
+        Bls12, MidnightCircuit,
+        unique_signature::{SigningKey, VerificationKey},
+    };
     use ff::Field;
     use midnight_circuits::compact_std_lib;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;

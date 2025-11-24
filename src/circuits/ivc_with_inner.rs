@@ -269,8 +269,9 @@ mod tests {
     use crate::merkle_tree::{MTLeaf, MerklePath, MerkleTree};
     use crate::{
         AssignedNative, Bls12, CircuitTranscript, Instantiable, KZGCommitmentScheme, MerkleRoot,
-        Msg, Msm, ParamsKZG, PoseidonState, Signature, SigningKey, Transcript, VerificationKey,
-        create_proof, keygen_pk, keygen_vk_with_k, prepare,
+        Msg, Msm, ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k,
+        prepare,
+        unique_signature::{Signature, SigningKey, VerificationKey},
     };
     use crate::{certificate::Certificate, compact_std_lib};
     use midnight_circuits::compact_std_lib::Relation;

@@ -1,4 +1,4 @@
-use crate::{HashCPU, JubjubBase, PoseidonHash, Target, VerificationKey};
+use crate::{HashCPU, JubjubBase, PoseidonHash, Target, unique_signature::VerificationKey};
 use ff::Field;
 use thiserror::Error;
 
@@ -214,7 +214,7 @@ impl MerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SigningKey;
+    use crate::unique_signature::SigningKey;
     use rand_core::OsRng;
 
     fn create_leaf(value: F) -> MTLeaf {

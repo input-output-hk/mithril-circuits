@@ -23,6 +23,16 @@ pub fn jubjub_base_to_scalar(x: JubjubBase) -> JubjubScalar {
     ])
 }
 
+pub fn jubjub_base_from_le_bytes(bytes: &[u8]) -> JubjubBase {
+    assert_eq!(bytes.len(), 32);
+    JubjubBase::from_raw([
+        u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
+        u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
+        u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
+        u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
+    ])
+}
+
 pub fn is_on_curve(u: JubjubBase, v: JubjubBase) -> Choice {
     let u2 = u.square();
     let v2 = v.square();
@@ -127,5 +137,14 @@ mod tests {
             1,
             "Splitting failed!"
         );
+    }
+
+    #[test]
+    fn test_bytes() {
+        let ran = JubjubBase::random(&mut OsRng);
+        let bytes = ran.to_bytes_le();
+
+        let base = jubjub_base_from_le_bytes(&bytes);
+        assert_eq!(ran, base);
     }
 }

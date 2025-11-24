@@ -1,4 +1,4 @@
-use crate::{DST_LOTTERY, HashCPU, JubjubBase, Msg, PoseidonHash, Signature, Target};
+use crate::{DST_LOTTERY, HashCPU, JubjubBase, PoseidonHash, Target, unique_signature::Signature};
 use ff::Field;
 use rug::{Float, Integer, float::Round, integer::Order, ops::Pow};
 use std::cmp::Ordering;
@@ -96,7 +96,7 @@ pub fn check_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SigningKey;
+    use crate::unique_signature::SigningKey;
     use rand_core::OsRng; // Import all elements from the module
 
     #[test]

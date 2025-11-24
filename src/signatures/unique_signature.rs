@@ -1,21 +1,11 @@
 use crate::{
-    DST_SIGNATURE, HashCPU, HashToCurveCPU, Jubjub, JubjubBase, JubjubHashToCurve, JubjubScalar,
-    JubjubSubgroup, PoseidonHash,
+    DST_UNIQUE_SIGNATURE, HashCPU, HashToCurveCPU, Jubjub, JubjubBase, JubjubHashToCurve,
+    JubjubScalar, JubjubSubgroup, PoseidonHash, SignatureError,
     utils::{get_coordinates, is_on_curve, jubjub_base_to_scalar},
 };
 use ff::Field;
 use group::Group;
 use rand_core::{CryptoRng, RngCore};
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum SignatureError {
-    #[error("Verification failed: Signature is invalid.")]
-    VerificationFailed,
-    /// This error occurs when the serialization of the raw bytes failed
-    #[error("Invalid bytes")]
-    SerializationError,
-}
 
 #[derive(Debug, Clone)]
 pub struct SigningKey(JubjubScalar);
@@ -43,7 +33,7 @@ impl SigningKey {
         let (cap_r_2_x, cap_r_2_y) = get_coordinates(cap_r_2);
 
         let c = PoseidonHash::hash(&[
-            DST_SIGNATURE,
+            DST_UNIQUE_SIGNATURE,
             hx,
             hy,
             vk_x,
@@ -82,7 +72,7 @@ impl SigningKey {
         let (cap_r_2_x, cap_r_2_y) = get_coordinates(cap_r_2);
 
         let c = PoseidonHash::hash(&[
-            DST_SIGNATURE,
+            DST_UNIQUE_SIGNATURE,
             hx,
             hy,
             vk_x,
@@ -179,7 +169,7 @@ impl Signature {
         let (cap_r_1_x_prime, cap_r_1_y_prime) = get_coordinates(cap_r_1_prime);
         let (cap_r_2_x_prime, cap_r_2_y_prime) = get_coordinates(cap_r_2_prime);
         let c_prime = PoseidonHash::hash(&[
-            DST_SIGNATURE,
+            DST_UNIQUE_SIGNATURE,
             hx,
             hy,
             vk_x,
@@ -224,7 +214,7 @@ impl LongSignature {
         let (cap_r_2_x, cap_r_2_y) = get_coordinates(self.cap_r_2);
 
         let c_prime = PoseidonHash::hash(&[
-            DST_SIGNATURE,
+            DST_UNIQUE_SIGNATURE,
             hx,
             hy,
             vk_x,
@@ -263,7 +253,7 @@ impl LongSignature {
         let (cap_r_2_x, cap_r_2_y) = get_coordinates(self.cap_r_2);
 
         let c = PoseidonHash::hash(&[
-            DST_SIGNATURE,
+            DST_UNIQUE_SIGNATURE,
             hx,
             hy,
             vk_x,
@@ -291,7 +281,7 @@ mod tests {
 
     /// Test signing functionality.
     #[test]
-    fn test_signature_verification_valid() {
+    fn test_signature_unique_verification_valid() {
         let mut rng = OsRng;
         let sk = SigningKey::generate(&mut rng);
         let msg = JubjubBase::random(&mut rng);
@@ -322,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_verification_invalid_signature() {
+    fn test_signature_unique_verification_invalid_signature() {
         let mut rng = OsRng;
         let sk = SigningKey::generate(&mut rng);
         let msg = JubjubBase::random(&mut rng);
@@ -341,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_long_verification_valid() {
+    fn test_signature_unique_long_verification_valid() {
         let mut rng = OsRng;
         let sk = SigningKey::generate(&mut rng);
         let vk: VerificationKey = (&sk).into();

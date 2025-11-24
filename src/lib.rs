@@ -2,7 +2,7 @@ pub mod alba;
 pub mod circuits;
 pub mod lottery;
 pub mod merkle_tree;
-pub mod unique_signature;
+pub mod signatures;
 pub mod utils;
 
 pub use midnight_curves::{
@@ -12,7 +12,7 @@ pub use midnight_curves::{
 };
 
 pub use circuits::*;
-pub use unique_signature::*;
+pub use signatures::*;
 
 use midnight_circuits::{
     compact_std_lib::{self, MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch},
@@ -75,11 +75,45 @@ pub type MerkleRoot = JubjubBase;
 pub type LotteryIndex = u32;
 pub type SignerIndex = u32;
 
-pub const DST_MERKLE_LEAF: JubjubBase = JubjubBase::from_raw([0u64, 0, 0, 0]);
-pub const DST_MERKLE_NODE: JubjubBase = JubjubBase::from_raw([1u64, 0, 0, 0]);
-pub const DST_SIGNATURE: JubjubBase = JubjubBase::from_raw([2u64, 0, 0, 0]);
-pub const DST_LOTTERY: JubjubBase = JubjubBase::from_raw([3u64, 0, 0, 0]);
-pub const DST_ALBA_ROUND: JubjubBase = JubjubBase::from_raw([4u64, 0, 0, 0]);
-pub const DST_ALBA_BIN: JubjubBase = JubjubBase::from_raw([5u64, 0, 0, 0]);
-pub const DST_ALBA_FINAL: JubjubBase = JubjubBase::from_raw([6u64, 0, 0, 0]);
-pub const DST_PERMUTATION: JubjubBase = JubjubBase::from_raw([7u64, 0, 0, 0]);
+pub const DST_MERKLE_LEAF: JubjubBase = JubjubBase::from_raw([0, 0, 0, 0]);
+pub const DST_MERKLE_NODE: JubjubBase = JubjubBase::from_raw([1, 1, 0, 0]);
+pub const DST_UNIQUE_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 2, 0, 0]);
+pub const DST_SCHNORR_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 3, 0, 0]);
+pub const DST_LOTTERY: JubjubBase = JubjubBase::from_raw([3, 3, 0, 0]);
+pub const DST_ALBA_ROUND: JubjubBase = JubjubBase::from_raw([4, 4, 0, 0]);
+pub const DST_ALBA_BIN: JubjubBase = JubjubBase::from_raw([4, 5, 0, 0]);
+pub const DST_ALBA_FINAL: JubjubBase = JubjubBase::from_raw([4, 6, 0, 0]);
+pub const DST_PERMUTATION: JubjubBase = JubjubBase::from_raw([5, 5, 0, 0]);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dst_constants_are_unique() {
+        let dsts = vec![
+            DST_MERKLE_LEAF,
+            DST_MERKLE_NODE,
+            DST_UNIQUE_SIGNATURE,
+            DST_SCHNORR_SIGNATURE,
+            DST_LOTTERY,
+            DST_ALBA_ROUND,
+            DST_ALBA_BIN,
+            DST_ALBA_FINAL,
+            DST_PERMUTATION,
+        ];
+
+        let mut sorted_dsts = dsts.clone();
+        sorted_dsts.sort();
+
+        // Check for duplicates
+        for i in 0..sorted_dsts.len() - 1 {
+            assert_ne!(
+                sorted_dsts[i],
+                sorted_dsts[i + 1],
+                "Duplicate DST constant found: {:?}",
+                sorted_dsts[i]
+            );
+        }
+    }
+}
