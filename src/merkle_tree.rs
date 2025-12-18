@@ -13,7 +13,6 @@ pub enum MerkleTreeError {
 
 type F = JubjubBase;
 
-//pub const MERKLE_TREE_HEIGHT: usize = 12;
 #[derive(Debug, Copy, Clone)]
 pub struct MTLeaf(pub VerificationKey, pub Target);
 
@@ -208,6 +207,51 @@ impl MerkleTree {
         }
 
         MerklePath::new(proof)
+    }
+    pub fn to_merkle_tree_commitment(&self) -> MerkleTreeCommitment {
+        MerkleTreeCommitment::new(self.nodes[0].clone(), self.n as u32)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MerkleTreeCommitment {
+    merkle_root: F,
+    nr_leaves: u32,
+}
+
+impl MerkleTreeCommitment {
+    pub fn new(merkle_root: F, nr_leaves: u32) -> Self {
+        Self {
+            merkle_root,
+            nr_leaves,
+        }
+    }
+}
+
+impl From<MerkleTreeCommitment> for Vec<u8> {
+    fn from(mt_commit: MerkleTreeCommitment) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&mt_commit.merkle_root.to_bytes_le());
+        bytes.extend_from_slice(&mt_commit.nr_leaves.to_le_bytes());
+        bytes
+    }
+}
+
+impl TryFrom<&[u8]> for MerkleTreeCommitment {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 36 {
+            return Err("Invalid byte length for MerkleTreeCommitment");
+        }
+
+        let merkle_root = JubjubBase::from_bytes_le(bytes[0..32].try_into().unwrap()).unwrap();
+        let nr_leaves = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
+
+        Ok(MerkleTreeCommitment {
+            merkle_root,
+            nr_leaves,
+        })
     }
 }
 

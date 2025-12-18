@@ -2,6 +2,7 @@ pub mod alba;
 pub mod circuits;
 pub mod lottery;
 pub mod merkle_tree;
+pub mod protocol_message;
 pub mod signatures;
 pub mod utils;
 
@@ -20,7 +21,7 @@ use midnight_circuits::{
         curves::CircuitCurve,
         foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
         hash_to_curve::HashToCurveGadget,
-        native::EccChip,
+        native::{EccChip, EccConfig, NB_EDWARDS_COLS},
     },
     field::{
         NativeChip, NativeConfig, NativeGadget,
@@ -29,7 +30,7 @@ use midnight_circuits::{
             pow2range::Pow2RangeChip,
         },
         foreign::FieldChip,
-        native::NB_ARITH_COLS,
+        native::{NB_ARITH_COLS, NB_ARITH_FIXED_COLS},
     },
     hash::poseidon::{
         NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, PoseidonChip, PoseidonConfig,
@@ -38,8 +39,8 @@ use midnight_circuits::{
     instructions::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
         ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions,
-        HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions, ZeroInstructions,
-        hash::HashCPU,
+        HashInstructions, HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions,
+        ZeroInstructions, hash::HashCPU,
     },
     types::{
         AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,

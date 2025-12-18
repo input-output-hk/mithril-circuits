@@ -21,6 +21,8 @@ halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"
 rug = { version = "1.27.0" }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+sha2 = "0.10.9"
 
 [dev-dependencies]
 criterion = "0.4.0"
@@ -30,7 +32,7 @@ blake2 = "0.10.6"
 digest = { version = "0.10.7", features = ["alloc"] }
 
 [features]
-default = []
+default = ["truncated-challenges"]
 truncated-challenges = ["midnight-circuits/truncated-challenges"]
 
 [[bench]]

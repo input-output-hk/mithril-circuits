@@ -13,7 +13,7 @@ use num_traits::One;
 pub mod certificate;
 pub mod certificate_alba;
 pub mod ivc;
-pub mod ivc_with_inner;
+pub mod ivc_sd;
 
 type F = JubjubBase;
 type C = Jubjub;
