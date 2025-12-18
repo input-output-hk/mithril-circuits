@@ -227,7 +227,7 @@ mod tests {
 
         let mut sks = Vec::new();
         let mut leaves = Vec::new();
-        for i in 0..n {
+        for _ in 0..n {
             let sk = SigningKey::generate(&mut rng);
             let vk = VerificationKey::from(&sk); // Replace this with actual initialization if provided
             leaves.push(MTLeaf(vk, -F::ONE));
@@ -313,8 +313,7 @@ mod tests {
         .expect("Proof generation should not fail");
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("\nProof generation took: {:?}", duration);
-
-        println!("\nproof size: {:?}", proof.len());
+        println!("Proof size: {:?}", proof.len());
 
         let start = Instant::now();
         assert!(
@@ -328,6 +327,6 @@ mod tests {
             .is_ok()
         );
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
-        println!("\nProof verification took: {:?}", duration);
+        println!("Proof verification took: {:?}", duration);
     }
 }
