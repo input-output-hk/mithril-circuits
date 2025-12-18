@@ -212,13 +212,12 @@ mod tests {
         AssignedNative, Bls12, CircuitTranscript, Instantiable, KZGCommitmentScheme, Msm,
         ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k, prepare,
     };
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
     use std::fs::File;
-    use std::io::BufReader;
+    use std::io::{BufReader, Cursor};
     use std::time::Instant;
 
     fn open(k: u32) -> ParamsKZG<Bls12> {
@@ -258,6 +257,14 @@ mod tests {
         let vk = keygen_vk_with_k(&srs, &default_ivc_circuit, self_k).unwrap();
         let pk = keygen_pk(vk.clone(), &default_ivc_circuit).unwrap();
         println!("Computed vk and pk in {:?} s", start.elapsed());
+
+        {
+            let mut buffer = Cursor::new(Vec::new());
+            // Serialize the MidnightVK instance to the buffer in the RawBytes format
+            vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
+            // Get the size of the serialized MidnightVK
+            println!("ivc_only vk length {:?}", buffer.get_ref().len());
+        }
 
         let mut fixed_bases = BTreeMap::new();
         fixed_bases.insert(String::from("com_instance"), C::identity());
@@ -313,6 +320,8 @@ mod tests {
             public_inputs.extend(AssignedNative::<F>::as_public_input(&state));
             public_inputs.extend(AssignedAccumulator::as_public_input(&acc));
 
+            println!("instance length {:?}", public_inputs.len());
+
             let start = Instant::now();
             let proof = {
                 let mut transcript = CircuitTranscript::<PoseidonState<F>>::init();
@@ -337,6 +346,7 @@ mod tests {
             println!("proof size {:?}", proof.len());
 
             let proof_acc: Accumulator<S> = {
+                let start = Instant::now();
                 let mut transcript = CircuitTranscript::<PoseidonState<F>>::init_from_bytes(&proof);
                 let dual_msm =
                     prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<PoseidonState<F>>>(
@@ -346,8 +356,9 @@ mod tests {
                         &mut transcript,
                     )
                     .expect("Verification failed");
-
                 assert!(dual_msm.clone().check(&srs.verifier_params()));
+                let duration = start.elapsed(); // Measure the elapsed time after proof generation.
+                println!("\nIVC proof verification took: {:?}", duration);
 
                 let mut proof_acc: Accumulator<S> = dual_msm.into();
                 proof_acc.extract_fixed_bases(&fixed_bases);
@@ -376,6 +387,48 @@ mod tests {
             // Set the new goals (public inputs) for the next iteration.
             state += F::ONE;
             acc = accumulated;
+        }
+
+        {
+            // Benchmark verifying ivc proof and accumulator together
+            let start = Instant::now();
+            let total = 100;
+            for _ in 0..total {
+                let mut public_inputs = AssignedVk::<S>::as_public_input(&vk);
+                public_inputs.extend(AssignedNative::<F>::as_public_input(&prev_state));
+                public_inputs.extend(AssignedAccumulator::as_public_input(&prev_acc));
+
+                let proof_acc: Accumulator<S> = {
+                    let mut transcript =
+                        CircuitTranscript::<PoseidonState<F>>::init_from_bytes(&prev_proof);
+                    let dual_msm =
+                        prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<PoseidonState<F>>>(
+                            &vk,
+                            &[&[C::identity()]],
+                            &[&[&public_inputs]],
+                            &mut transcript,
+                        )
+                        .expect("Verification failed");
+
+                    let mut proof_acc: Accumulator<S> = dual_msm.into();
+                    proof_acc.extract_fixed_bases(&fixed_bases);
+                    proof_acc.collapse();
+                    proof_acc
+                };
+
+                let mut accumulated = Accumulator::accumulate(&[proof_acc, acc.clone()]);
+                accumulated.collapse();
+
+                assert!(
+                    accumulated.check(&srs.s_g2().into(), &fixed_bases),
+                    "IVC acc verification failed"
+                );
+            }
+            let duration = start.elapsed(); // Measure the elapsed time after proof generation.
+            println!(
+                "\nIVC and accumulator proof verification took: {:?}",
+                duration / total
+            );
         }
     }
 }
