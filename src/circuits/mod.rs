@@ -14,9 +14,13 @@ pub mod certificate;
 pub mod certificate_alba;
 pub mod ivc;
 pub mod ivc_sd;
+pub mod wrapper_tx;
 
 type F = JubjubBase;
 type C = Jubjub;
+
+const CERT_VK_NAME: &str = "cert_vk";
+const IVC_SD_NAME: &str = "ivc_sd_vk";
 
 fn div_rem_native_by_base(
     std_lib: &ZkStdLib,
@@ -35,7 +39,6 @@ fn div_rem_native_by_base(
             (big_to_fe(q), big_to_fe(r))
         })
         .unzip();
-    // let shifted_x_size_bound = max(x_size_bound, LOG2_BASE) - LOG2_BASE;
     let q_bound = ((BigUint::one() << x_size_bound) + &base) / &base;
     let q = std_lib.assign_lower_than_fixed(layouter, q_value, &q_bound)?;
     let r = std_lib.assign_lower_than_fixed(layouter, r_value, &base_big)?;

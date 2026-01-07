@@ -9,7 +9,7 @@ pub mod utils;
 pub use midnight_curves::{
     Bls12, EDWARDS_D, Fq as JubjubBase, Fq as BlsScalar, Fr as JubjubScalar,
     G1Affine as BlstG1Affine, G1Projective as BlstG1, G2Affine as BlstG2Affine, JubjubAffine,
-    JubjubExtended as Jubjub, JubjubSubgroup, MODULUS,
+    JubjubExtended as Jubjub, JubjubSubgroup, MODULUS, pairing,
 };
 
 pub use circuits::*;

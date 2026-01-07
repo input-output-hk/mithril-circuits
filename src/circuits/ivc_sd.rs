@@ -14,6 +14,7 @@ use crate::{
     verifier,
 };
 
+use crate::circuits::{CERT_VK_NAME, IVC_SD_NAME};
 use ff::Field;
 use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
@@ -36,7 +37,7 @@ const K: u32 = 19;
 #[cfg(not(feature = "truncated-challenges"))]
 const K: u32 = 19;
 
-pub const PREIMAGE_SIZE: usize = 199;
+pub const PREIMAGE_SIZE: usize = 152;
 
 #[derive(Debug, Clone)]
 pub struct IvcConfig {
@@ -199,7 +200,7 @@ impl Circuit<F> for IvcCircuit {
                 ],
             )?
             .try_into()
-            // Won't fail
+            // this won't fail
             .unwrap();
 
         // Assign and verify genesis certificate
@@ -312,10 +313,10 @@ impl Circuit<F> for IvcCircuit {
             }
 
             // Read the value of next merkle root and current epoch
-            // snapshot_digest(15) | bytes(32) | next_aggregate_verification_key(31) | bytes(44) | next_protocol_parameters(24) | bytes(32) | current_epoch(13) | bytes(8)
+            // next_aggregate_verification_key(31) | bytes(44) | next_protocol_parameters(24) | bytes(32) | current_epoch(13) | bytes(8)
             // todo: check field keywords(?)
-            let next_merkle_root_bytes = assigned_preimage[78..110].to_vec();
-            let current_epoch_bytes = assigned_preimage[191..199].to_vec();
+            let next_merkle_root_bytes = assigned_preimage[31..63].to_vec();
+            let current_epoch_bytes = assigned_preimage[144..152].to_vec();
 
             {
                 // Constraint the next merkle root as public input
@@ -350,11 +351,10 @@ impl Circuit<F> for IvcCircuit {
 
         {
             // Assign for inner circuit proof verification
-            let inner_vk_name = "inner_vk";
             let (inner_domain, inner_cs, inner_vk_value) = &self.inner_vk;
             let assigned_inner_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
                 &mut layouter,
-                inner_vk_name,
+                CERT_VK_NAME,
                 inner_domain,
                 inner_cs,
                 *inner_vk_value,
@@ -376,15 +376,13 @@ impl Circuit<F> for IvcCircuit {
                 &is_not_genesis,
                 &mut inner_proof_acc,
             )?;
-
             inner_proof_acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
 
             // Assign for self-proof verification
-            let self_vk_name = "self_vk";
             let (self_domain, self_cs, self_vk_value) = &self.self_vk;
             let assigned_self_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
                 &mut layouter,
-                self_vk_name,
+                IVC_SD_NAME,
                 self_domain,
                 self_cs,
                 *self_vk_value,
@@ -395,12 +393,12 @@ impl Circuit<F> for IvcCircuit {
             let prev_acc = {
                 let mut fixed_base_names = vec![String::from("com_instance")];
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    self_vk_name,
+                    IVC_SD_NAME,
                     self_cs.num_fixed_columns() + self_cs.num_selectors(),
                     self_cs.permutation().columns.len(),
                 ));
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    inner_vk_name,
+                    CERT_VK_NAME,
                     inner_cs.num_fixed_columns() + inner_cs.num_selectors(),
                     inner_cs.permutation().columns.len(),
                 ));
@@ -458,32 +456,19 @@ impl Circuit<F> for IvcCircuit {
                 &is_not_genesis,
                 &mut proof_acc,
             )?;
-
             proof_acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
 
             // Accumulate the inner_proof_acc
-            let mut acc_with_inner = AssignedAccumulator::<S>::accumulate(
+            let mut acc = AssignedAccumulator::<S>::accumulate(
                 &mut layouter,
                 &verifier_chip,
                 &native_gadget,
                 &poseidon_chip,
-                &[inner_proof_acc, prev_acc],
+                &[prev_acc, inner_proof_acc, proof_acc],
             )?;
-            acc_with_inner.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
+            acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
 
-            // Accumulate the `proof_acc` with the previous witnessed accumulator.
-            // `next_acc` will satisfy the invariant iff both `proof_acc` and `prev_acc` do.
-            let mut next_acc = AssignedAccumulator::<S>::accumulate(
-                &mut layouter,
-                &verifier_chip,
-                &native_gadget,
-                &poseidon_chip,
-                &[proof_acc, acc_with_inner],
-            )?;
-            // Finally, collapse the resulting accumulator and constraint it as public.
-            next_acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
-
-            verifier_chip.constrain_as_public_input(&mut layouter, &next_acc)?;
+            verifier_chip.constrain_as_public_input(&mut layouter, &acc)?;
         }
 
         core_decomp_chip.load(&mut layouter)?;
@@ -584,8 +569,6 @@ mod tests {
 
         let (genesis_msg, genesis_preimage) = {
             let mut protocol_message = ProtocolMessage::new();
-            protocol_message
-                .set_message_part(ProtocolMessagePartKey::SnapshotDigest, vec![0u8; 32]);
             protocol_message.set_message_part(
                 ProtocolMessagePartKey::NextAggregateVerificationKey,
                 avk.clone().into(),
@@ -618,8 +601,6 @@ mod tests {
             current_epoch += 1;
             let (msg, preimage) = {
                 let mut protocol_message = ProtocolMessage::new();
-                protocol_message
-                    .set_message_part(ProtocolMessagePartKey::SnapshotDigest, vec![3u8; 32]);
                 protocol_message.set_message_part(
                     ProtocolMessagePartKey::NextAggregateVerificationKey,
                     avk.clone().into(),
@@ -708,7 +689,7 @@ mod tests {
 
         let mut inner_fixed_bases = BTreeMap::new();
         inner_fixed_bases.insert(String::from("com_instance"), C::identity());
-        inner_fixed_bases.extend(verifier::fixed_bases::<S>("inner_vk", &inner_vk.vk()));
+        inner_fixed_bases.extend(verifier::fixed_bases::<S>(CERT_VK_NAME, &inner_vk.vk()));
         let inner_fixed_base_names = inner_fixed_bases.keys().cloned().collect::<Vec<_>>();
 
         let inner_trivial_acc = Accumulator::<S>::new(
@@ -810,7 +791,7 @@ mod tests {
 
         let mut self_fixed_bases = BTreeMap::new();
         self_fixed_bases.insert(String::from("com_instance"), C::identity());
-        self_fixed_bases.extend(verifier::fixed_bases::<S>("self_vk", &self_vk));
+        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_SD_NAME, &self_vk));
         let self_fixed_base_names = self_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
             "IVC fixed base name length {:?}",
@@ -892,7 +873,6 @@ mod tests {
                 AssignedAccumulator::as_public_input(&acc),
             ]
             .concat();
-
             println!("instance length {:?}", public_inputs.len());
 
             let start = Instant::now();
@@ -953,17 +933,18 @@ mod tests {
 
             if i < NUM_CERT - 1 {
                 // Prepare the next accumulator
-                let mut inner_with_pre_acc =
-                    Accumulator::accumulate(&[inner_accs[i + 1].clone(), prev_acc.clone()]);
-                inner_with_pre_acc.collapse();
-
-                let mut accumulated = Accumulator::accumulate(&[proof_acc, inner_with_pre_acc]);
+                let mut accumulated = Accumulator::accumulate(&[
+                    prev_acc.clone(),
+                    inner_accs[i + 1].clone(),
+                    proof_acc,
+                ]);
                 accumulated.collapse();
 
                 assert!(
                     accumulated.check(&srs.s_g2().into(), &combined_fixed_bases),
                     "IVC acc verification failed"
                 );
+
                 acc = accumulated;
                 // Set the new goals (public inputs) for the next iteration.
                 state += F::ONE;
@@ -1001,6 +982,7 @@ mod tests {
                             &mut transcript,
                         )
                         .expect("Verification failed");
+                    // assert!(dual_msm.clone().check(&srs.verifier_params()));
                     let mut proof_acc: Accumulator<S> = dual_msm.into();
                     proof_acc.extract_fixed_bases(&self_fixed_bases);
                     proof_acc.collapse();
