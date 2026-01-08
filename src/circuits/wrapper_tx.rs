@@ -1,15 +1,13 @@
 use crate::{
     Accumulator, ArithInstructions, AssertionInstructions, AssignedAccumulator,
-    AssignedForeignPoint, AssignedNative, AssignedNativePoint, AssignedVk, AssignmentInstructions,
-    BinaryInstructions, BlstrsEmulation, Circuit, CircuitCurve, ComposableChip, ConstraintSystem,
-    ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions, Error,
-    EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, HashInstructions, Jubjub,
+    AssignedForeignPoint, AssignedNative, AssignedVk, AssignmentInstructions, BinaryInstructions,
+    BlstrsEmulation, Circuit, CircuitCurve, ComposableChip, ConstraintSystem, EqualityInstructions,
+    Error, EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, HashInstructions, Jubjub,
     Layouter, NB_ARITH_COLS, NB_ARITH_FIXED_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS,
     NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip, P2RDecompositionConfig,
     PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions, SelfEmulation,
-    SimpleFloorPlanner, Value, VerifierGadget, ZeroInstructions, nb_foreign_ecc_chip_columns,
-    schnorr_signature::{Signature as SchnorrSignature, VerificationKey as SchnorrVerificationKey},
-    verifier,
+    SimpleFloorPlanner, Value, VerifierGadget, nb_foreign_ecc_chip_columns,
+    schnorr_signature::VerificationKey as SchnorrVerificationKey, verifier,
 };
 
 use crate::circuits::{CERT_VK_NAME, IVC_SD_NAME};
@@ -327,7 +325,7 @@ impl Circuit<F> for WrapperCircuit {
                     cert_cs.num_fixed_columns() + cert_cs.num_selectors(),
                     cert_cs.permutation().columns.len(),
                 ));
-                // remove repeated names
+                // Remove repeated names
                 let mut seen = HashSet::new();
                 fixed_base_names.retain(|x| seen.insert(x.clone()));
                 AssignedAccumulator::assign(
@@ -396,9 +394,9 @@ mod tests {
     };
     use crate::utils::jubjub_base_from_le_bytes;
     use crate::{
-        AssignedNative, Bls12, CircuitTranscript, Instantiable, JubjubBase, KZGCommitmentScheme,
-        MerkleRoot, Msg, Msm, ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk,
-        keygen_vk_with_k, prepare,
+        AssignedNative, AssignedNativePoint, Bls12, CircuitTranscript, Instantiable, JubjubBase,
+        KZGCommitmentScheme, MerkleRoot, Msg, Msm, ParamsKZG, PoseidonState, Transcript,
+        create_proof, keygen_pk, keygen_vk_with_k, prepare,
         schnorr_signature::{
             Signature as SchnorrSignature, SigningKey as SchnorrSigningKey,
             VerificationKey as SchnorrVerificationKey,
@@ -491,8 +489,6 @@ mod tests {
 
             let (msg, preimage) = {
                 let mut protocol_message = ProtocolMessage::new();
-                // protocol_message
-                //     .set_message_part(ProtocolMessagePartKey::SnapshotDigest, vec![0u8; 32]);
                 protocol_message.set_message_part(
                     ProtocolMessagePartKey::NextAggregateVerificationKey,
                     avk.clone().into(),
@@ -602,7 +598,7 @@ mod tests {
     fn test_wrapper() {
         let srs = open(K);
 
-        // create genesis certificate
+        // Create genesis certificate
         let (
             genesis_vk,
             genesis_msg,
