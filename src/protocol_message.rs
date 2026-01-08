@@ -6,6 +6,10 @@ use std::fmt::Display;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProtocolMessagePartKey {
+    /// The ProtocolMessage part key associated to the general Digest
+    #[serde(rename = "digest")]
+    Digest,
+
     /// The ProtocolMessage part key associated to the Snapshot Digest
     #[serde(rename = "snapshot_digest")]
     SnapshotDigest,
@@ -54,6 +58,7 @@ pub enum ProtocolMessagePartKey {
 impl Display for ProtocolMessagePartKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
+            Self::Digest => write!(f, "digest"),
             Self::SnapshotDigest => write!(f, "snapshot_digest"),
             Self::NextAggregateVerificationKey => write!(f, "next_aggregate_verification_key"),
             Self::NextProtocolParameters => write!(f, "next_protocol_parameters"),
@@ -187,8 +192,9 @@ impl TryFrom<&[u8]> for Epoch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn all_key() -> ([ProtocolMessagePartKey; 9], [usize; 9]) {
+    fn all_key() -> ([ProtocolMessagePartKey; 10], [usize; 10]) {
         let keys = [
+            ProtocolMessagePartKey::Digest,
             ProtocolMessagePartKey::SnapshotDigest,
             ProtocolMessagePartKey::CardanoTransactionsMerkleRoot,
             ProtocolMessagePartKey::NextAggregateVerificationKey,
@@ -199,7 +205,7 @@ mod tests {
             ProtocolMessagePartKey::CardanoStakeDistributionMerkleRoot,
             ProtocolMessagePartKey::CardanoDatabaseMerkleRoot,
         ];
-        let lens = [15, 32, 31, 24, 13, 19, 32, 38, 28];
+        let lens = [6, 15, 32, 31, 24, 13, 19, 32, 38, 28];
         (keys, lens)
     }
 
