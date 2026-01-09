@@ -40,7 +40,7 @@ use midnight_circuits::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
         ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions,
         HashInstructions, HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions,
-        ZeroInstructions, hash::HashCPU,
+        ZeroInstructions, hash::HashCPU, public_input::CommittedInstanceInstructions,
     },
     types::{
         AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,

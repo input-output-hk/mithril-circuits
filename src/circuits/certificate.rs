@@ -1,13 +1,16 @@
 use crate::{
     AssignedBit, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
-    AssignmentInstructions, CircuitCurve, ConversionInstructions, DST_LOTTERY,
-    DST_UNIQUE_SIGNATURE, Error, Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions,
-    Relation, Value, ZkStdLib, ZkStdLibArch,
-    circuits::{C, F, verify_lottery, verify_merkle_path, verify_unique_signature},
+    AssignmentInstructions, CircuitCurve, CommittedInstanceInstructions, ConversionInstructions,
+    DST_LOTTERY, DST_UNIQUE_SIGNATURE, Error, Layouter, LotteryIndex, MerkleRoot, Msg,
+    PublicInputInstructions, Relation, Value, ZkStdLib, ZkStdLibArch,
+    circuits::{
+        C, F, combine_signer_lottery_index, verify_lottery, verify_merkle_path,
+        verify_unique_signature,
+    },
     merkle_tree::{MTLeaf, MerklePath},
     unique_signature::Signature,
 };
-use ff::Field;
+use ff::{Field, PrimeField};
 use group::Group;
 
 #[derive(Clone, Default, Debug)]
@@ -35,6 +38,19 @@ impl Relation for Certificate {
 
     fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
         Ok(vec![instance.0, instance.1])
+    }
+
+    fn format_committed_instances(witness: &Self::Witness) -> Vec<F> {
+        witness
+            .iter()
+            .map(|(_, path, _, lottery_index)| {
+                let signer_index = path.get_index();
+                let mut index = F::from_u128(1_u128 << 64);
+                index = index * F::from(signer_index as u64);
+                index += F::from(*lottery_index as u64);
+                index
+            })
+            .collect()
     }
 
     fn circuit(
@@ -69,18 +85,20 @@ impl Relation for Certificate {
 
         let witness = witness.transpose_vec(self.quorum as usize);
 
-        let mut pre_index: AssignedNative<_> = std_lib.assign(layouter, Value::known(F::ZERO))?;
+        let mut prev_lottery_index: AssignedNative<_> =
+            std_lib.assign(layouter, Value::known(F::ZERO))?;
         for (i, wit) in witness.into_iter().enumerate() {
-            let index: AssignedNative<F> =
+            let lottery_index: AssignedNative<F> =
                 std_lib.assign(layouter, wit.clone().map(|(_, _, _, i)| F::from(i as u64)))?;
 
             // Check index order
             if i > 0 {
-                let is_less = std_lib.lower_than(layouter, &pre_index, &index, 32)?;
+                let is_less =
+                    std_lib.lower_than(layouter, &prev_lottery_index, &lottery_index, 32)?;
                 std_lib.assert_true(layouter, &is_less)?;
             }
 
-            pre_index = index.clone();
+            prev_lottery_index = lottery_index.clone();
 
             let vk = std_lib
                 .jubjub()
@@ -123,6 +141,16 @@ impl Relation for Certificate {
             let c: AssignedScalarOfNativeCurve<C> =
                 std_lib.jubjub().convert(layouter, &c_native)?;
 
+            {
+                let index = combine_signer_lottery_index(
+                    std_lib,
+                    layouter,
+                    &assigned_merkle_positions,
+                    lottery_index.clone(),
+                )?;
+                std_lib.constrain_as_committed_public_input(layouter, &index)?;
+            }
+
             verify_merkle_path(
                 std_lib,
                 layouter,
@@ -146,12 +174,19 @@ impl Relation for Certificate {
                 &sigma,
             )?;
 
-            verify_lottery(std_lib, layouter, &lottery_prefix, &sigma, &index, &target)?;
+            verify_lottery(
+                std_lib,
+                layouter,
+                &lottery_prefix,
+                &sigma,
+                &lottery_index,
+                &target,
+            )?;
         }
 
         // m can be put as a public instance or a constant
         let m = std_lib.assign_fixed(layouter, F::from(self.num_lotteries as u64))?;
-        let is_less = std_lib.lower_than(layouter, &pre_index, &m, 32)?;
+        let is_less = std_lib.lower_than(layouter, &prev_lottery_index, &m, 32)?;
 
         std_lib.assert_true(layouter, &is_less)
     }
@@ -207,11 +242,13 @@ mod tests {
     use crate::certificate::Certificate;
     use crate::merkle_tree::MerkleTree;
     use crate::{
-        Bls12, MidnightCircuit, compact_std_lib,
+        Bls12, BlstG1Affine, MidnightCircuit, compact_std_lib,
         unique_signature::{SigningKey, VerificationKey},
     };
     use ff::Field;
     use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
+    use midnight_proofs::plonk::commit_to_instances;
+    use midnight_proofs::poly::kzg::KZGCommitmentScheme;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
     use rand_chacha::ChaCha20Rng;
@@ -305,6 +342,11 @@ mod tests {
         }
 
         let instance = (merkle_root, msg);
+        let committed_index: BlstG1Affine = {
+            let instance = Certificate::format_committed_instances(&witness);
+            commit_to_instances::<_, KZGCommitmentScheme<_>>(&srs, vk.vk().get_domain(), &instance)
+                .into()
+        };
 
         let start = Instant::now();
         let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(
@@ -321,7 +363,7 @@ mod tests {
                 &srs.verifier_params(),
                 &vk,
                 &instance,
-                None,
+                Some(committed_index),
                 &proof
             )
             .is_ok()

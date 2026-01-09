@@ -96,6 +96,21 @@ impl MerklePath {
             Position::Right => PoseidonHash::hash(&[acc, x.1]),
         })
     }
+
+    // Compute the original index without leaf_off.
+    pub fn get_index(&self) -> usize {
+        self.siblings
+            .iter()
+            .fold((0usize, 1usize), |(index, base), (pos, _)| {
+                let index = if matches!(pos, Position::Left) {
+                    index + base
+                } else {
+                    index
+                };
+                (index, base << 1)
+            })
+            .0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

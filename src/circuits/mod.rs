@@ -232,3 +232,43 @@ fn verify_lottery(
     let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
     std_lib.assert_false(layouter, &is_less)
 }
+
+// Compute the signer index from merkle positions and combine it with the lottery index
+// into a single field element where modulus should not happen, assuming both indices are less than 64-bit.
+// | 128 bit |    64 bit    |     64 bit    |
+// |         | signer index | lottery index |
+fn combine_signer_lottery_index(
+    std_lib: &ZkStdLib,
+    layouter: &mut impl Layouter<F>,
+    merkle_positions: &[AssignedBit<F>],
+    lottery_index: AssignedNative<F>,
+) -> Result<AssignedNative<F>, Error> {
+    // This is the merkle tree depth that should be around 13
+    assert!(merkle_positions.len() <= 64);
+    // shifted_signer_index = 2^64 [(1-pos_0) + 2* (1-pos_1) + 4* (1-pos_2) + ... ]
+    let shifted_signer_index = {
+        let base64 = F::from_u128(1_u128 << 64);
+        let factor = F::from(2u64);
+        let bases: Vec<_> = (0..merkle_positions.len())
+            .scan(base64, |state, _| {
+                let out = *state;
+                *state *= factor;
+                Some(out)
+            })
+            .collect();
+        let sum = bases.iter().sum::<F>();
+
+        let mut items: Vec<(F, AssignedNative<F>)> = vec![];
+        for (v, base) in merkle_positions.iter().zip(bases.iter()) {
+            let v_native = AssignedNative::<F>::from(v.clone());
+            items.push((*base, v_native));
+        }
+
+        let mut index = std_lib.linear_combination(layouter, &items, -sum)?;
+        index = std_lib.neg(layouter, &index)?;
+        index
+    };
+
+    // Combine the lottery index with the shifted signer index
+    std_lib.add(layouter, &shifted_signer_index, &lottery_index)
+}
