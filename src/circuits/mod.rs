@@ -245,3 +245,113 @@ fn verify_lottery(
     let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
     std_lib.assert_false(layouter, &is_less)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        MidnightCircuit, PublicInputInstructions, Relation, Value, ZkStdLibArch, compact_std_lib,
+    };
+    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
+    use midnight_proofs::dev::MockProver;
+
+    #[derive(Clone, Default)]
+    pub struct TestCircuit;
+
+    impl Relation for TestCircuit {
+        type Instance = F;
+
+        type Witness = (F, F);
+
+        fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
+            Ok(vec![*instance])
+        }
+
+        fn circuit(
+            &self,
+            std_lib: &ZkStdLib,
+            layouter: &mut impl Layouter<F>,
+            _instance: Value<Self::Instance>,
+            witness: Value<Self::Witness>,
+        ) -> Result<(), Error> {
+            // First we witness a Scalar.
+            let (a, b) = witness.unzip();
+            let x = std_lib.assign(layouter, a)?;
+            let y = std_lib.assign(layouter, b)?;
+
+            std_lib.constrain_as_public_input(layouter, &x)?;
+
+            let is_lower = lower_than_native(std_lib, layouter, &x, &y)?;
+            std_lib.assert_true(layouter, &is_lower)
+        }
+
+        fn used_chips(&self) -> ZkStdLibArch {
+            ZkStdLibArch {
+                jubjub: true,
+                poseidon: false,
+                sha256: false,
+                sha512: false,
+                secp256k1: false,
+                bls12_381: false,
+                base64: false,
+                nr_pow2range_cols: 1,
+                automaton: false,
+            }
+        }
+
+        fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
+            Ok(TestCircuit)
+        }
+    }
+
+    #[test]
+    fn test_lower_than() {
+        const K: u32 = 9;
+        let srs = filecoin_srs(K);
+        let relation = TestCircuit;
+
+        {
+            let circuit = MidnightCircuit::from_relation(&relation);
+            println!("min_k {:?}", circuit.min_k());
+            println!("{:?}", compact_std_lib::cost_model(&relation));
+        }
+
+        {
+            let witness = (-F::from(5u64), -F::from(2u64));
+            let instance = witness.0;
+
+            let circuit = MidnightCircuit::new(
+                &relation,
+                Value::known(instance),
+                Value::known(witness),
+                None,
+            );
+            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+                Ok(prover) => prover,
+                Err(e) => panic!("{e:?}"),
+            };
+            assert!(prover.verify().is_ok());
+        }
+
+        {
+            let witness = (-F::from(5u64), -F::from(22u64));
+            let instance = witness.0;
+
+            let circuit = MidnightCircuit::new(
+                &relation,
+                Value::known(instance),
+                Value::known(witness),
+                None,
+            );
+            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+                Ok(prover) => prover,
+                Err(e) => panic!("{e:?}"),
+            };
+            assert!(prover.verify().is_err());
+        }
+    }
+}
