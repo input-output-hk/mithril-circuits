@@ -38,9 +38,9 @@ use midnight_circuits::{
     },
     instructions::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
-        ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions,
-        HashInstructions, HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions,
-        ZeroInstructions, hash::HashCPU,
+        ControlFlowInstructions, ConversionInstructions, DecompositionInstructions,
+        EccInstructions, EqualityInstructions, HashInstructions, HashToCurveCPU,
+        PublicInputInstructions, RangeCheckInstructions, ZeroInstructions, hash::HashCPU,
     },
     types::{
         AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
