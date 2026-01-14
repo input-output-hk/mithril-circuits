@@ -1,8 +1,8 @@
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
     AssignedScalarOfNativeCurve, AssignmentInstructions, BinaryInstructions,
-    ControlFlowInstructions, EccInstructions, EqualityInstructions, Error, Jubjub, JubjubBase,
-    Layouter, RangeCheckInstructions, ZkStdLib,
+    ControlFlowInstructions, DecompositionInstructions, EccInstructions, EqualityInstructions,
+    Error, Jubjub, JubjubBase, Layouter, RangeCheckInstructions, ZkStdLib,
     utils::{big_to_fe, fe_to_big, split},
 };
 use ff::{Field, PrimeField};
@@ -23,7 +23,7 @@ type C = Jubjub;
 const CERT_VK_NAME: &str = "cert_vk";
 const IVC_SD_NAME: &str = "ivc_sd_vk";
 
-fn div_rem_native_by_base(
+fn div_rem_native(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     x: &AssignedNative<F>,
@@ -54,7 +54,7 @@ fn div_rem_native_by_base(
     Ok((q, r))
 }
 
-// check if x = 0 mod n
+// Check if x = 0 mod n
 fn is_divisible_by_base(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
@@ -80,17 +80,28 @@ fn is_divisible_by_base(
     Ok(q)
 }
 
-// Compare x < y where x, y are 255-bit
-fn lower_than_native(
+fn assert_equal_parity(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     x: &AssignedNative<F>,
     y: &AssignedNative<F>,
-) -> Result<AssignedBit<F>, Error> {
-    // decompose 255-bit value into 127-bit and 128-bit values.
+) -> Result<(), Error> {
+    let sgn0 = std_lib.sgn0(layouter, x)?;
+    let sgn1 = std_lib.sgn0(layouter, y)?;
+    std_lib.assert_equal(layouter, &sgn0, &sgn1)
+}
+
+// Decompose a 255-bit value into 127-bit and 128-bit values without checking the bound
+fn decompose_unsafe(
+    std_lib: &ZkStdLib,
+    layouter: &mut impl Layouter<F>,
+    x: &AssignedNative<F>,
+) -> Result<(AssignedNative<F>, AssignedNative<F>), Error> {
+    // Decompose 255-bit value into 127-bit and 128-bit values.
     let x_value = x.value();
     let base127 = F::from_u128(1_u128 << 127);
     let (x_low, x_high) = x_value.map(|v| split(v, 127)).unzip();
+
     let x_low_assigned: AssignedNative<_> = std_lib.assign(layouter, x_low.clone())?;
     let x_high_assigned: AssignedNative<_> = std_lib.assign(layouter, x_high.clone())?;
 
@@ -104,20 +115,22 @@ fn lower_than_native(
     )?;
     std_lib.assert_equal(layouter, x, &x_combined)?;
 
-    let y_value = y.value();
-    let (y_low, y_high) = y_value.map(|v| split(v, 127)).unzip();
-    let y_low_assigned: AssignedNative<_> = std_lib.assign(layouter, y_low.clone())?;
-    let y_high_assigned: AssignedNative<_> = std_lib.assign(layouter, y_high.clone())?;
+    // Verify the least significant bit is consistent to make sure the decomposition is unique
+    // This works because the modulus is an odd number
+    assert_equal_parity(std_lib, layouter, &x, &x_low_assigned)?;
 
-    let y_combined = std_lib.linear_combination(
-        layouter,
-        &[
-            (F::ONE, y_low_assigned.clone()),
-            (base127, y_high_assigned.clone()),
-        ],
-        F::ZERO,
-    )?;
-    std_lib.assert_equal(layouter, y, &y_combined)?;
+    Ok((x_low_assigned, x_high_assigned))
+}
+
+// Compare x < y where x, y are 255-bit
+fn lower_than_native(
+    std_lib: &ZkStdLib,
+    layouter: &mut impl Layouter<F>,
+    x: &AssignedNative<F>,
+    y: &AssignedNative<F>,
+) -> Result<AssignedBit<F>, Error> {
+    let (x_low_assigned, x_high_assigned) = decompose_unsafe(std_lib, layouter, x)?;
+    let (y_low_assigned, y_high_assigned) = decompose_unsafe(std_lib, layouter, y)?;
 
     // Check if x < y
     let is_equal_high = std_lib.is_equal(layouter, &x_high_assigned, &y_high_assigned)?;
@@ -170,21 +183,21 @@ fn verify_unique_signature(
     hash: &AssignedNativePoint<C>,
     sigma: &AssignedNativePoint<C>,
 ) -> Result<(), Error> {
-    // compute R1
+    // Compute R1
     let cap_r_1 = std_lib.jubjub().msm(
         layouter,
         &[s.clone(), c.clone()],
         &[hash.clone(), sigma.clone()],
     )?;
 
-    // compute R2
+    // Compute R2
     let cap_r_2 = std_lib.jubjub().msm(
         layouter,
         &[s.clone(), c.clone()],
         &[generator.clone(), vk.clone()],
     )?;
 
-    // compute H2(g, H1(msg), vk, sigma, R1, R2)
+    // Compute H2(g, H1(msg), vk, sigma, R1, R2)
     let hx = std_lib.jubjub().x_coordinate(&hash);
     let hy = std_lib.jubjub().y_coordinate(&hash);
     let vk_x = std_lib.jubjub().x_coordinate(&vk);
@@ -231,4 +244,114 @@ fn verify_lottery(
     )?;
     let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
     std_lib.assert_false(layouter, &is_less)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        MidnightCircuit, PublicInputInstructions, Relation, Value, ZkStdLibArch, compact_std_lib,
+    };
+    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
+    use midnight_proofs::dev::MockProver;
+
+    #[derive(Clone, Default)]
+    pub struct TestCircuit;
+
+    impl Relation for TestCircuit {
+        type Instance = F;
+
+        type Witness = (F, F);
+
+        fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
+            Ok(vec![*instance])
+        }
+
+        fn circuit(
+            &self,
+            std_lib: &ZkStdLib,
+            layouter: &mut impl Layouter<F>,
+            _instance: Value<Self::Instance>,
+            witness: Value<Self::Witness>,
+        ) -> Result<(), Error> {
+            // First we witness a Scalar.
+            let (a, b) = witness.unzip();
+            let x = std_lib.assign(layouter, a)?;
+            let y = std_lib.assign(layouter, b)?;
+
+            std_lib.constrain_as_public_input(layouter, &x)?;
+
+            let is_lower = lower_than_native(std_lib, layouter, &x, &y)?;
+            std_lib.assert_true(layouter, &is_lower)
+        }
+
+        fn used_chips(&self) -> ZkStdLibArch {
+            ZkStdLibArch {
+                jubjub: true,
+                poseidon: false,
+                sha256: false,
+                sha512: false,
+                secp256k1: false,
+                bls12_381: false,
+                base64: false,
+                nr_pow2range_cols: 1,
+                automaton: false,
+            }
+        }
+
+        fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
+            Ok(TestCircuit)
+        }
+    }
+
+    #[test]
+    fn test_lower_than() {
+        const K: u32 = 9;
+        let srs = filecoin_srs(K);
+        let relation = TestCircuit;
+
+        {
+            let circuit = MidnightCircuit::from_relation(&relation);
+            println!("min_k {:?}", circuit.min_k());
+            println!("{:?}", compact_std_lib::cost_model(&relation));
+        }
+
+        {
+            let witness = (-F::from(5u64), -F::from(2u64));
+            let instance = witness.0;
+
+            let circuit = MidnightCircuit::new(
+                &relation,
+                Value::known(instance),
+                Value::known(witness),
+                None,
+            );
+            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+                Ok(prover) => prover,
+                Err(e) => panic!("{e:?}"),
+            };
+            assert!(prover.verify().is_ok());
+        }
+
+        {
+            let witness = (-F::from(5u64), -F::from(22u64));
+            let instance = witness.0;
+
+            let circuit = MidnightCircuit::new(
+                &relation,
+                Value::known(instance),
+                Value::known(witness),
+                None,
+            );
+            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+                Ok(prover) => prover,
+                Err(e) => panic!("{e:?}"),
+            };
+            assert!(prover.verify().is_err());
+        }
+    }
 }
