@@ -1,0 +1,7 @@
+# Rust build artifacts
+/target/
+
+# Generated KZG parameters
+examples/assets/
+
+.DS_Store
