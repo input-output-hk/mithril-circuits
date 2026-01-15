@@ -14,9 +14,10 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "8a874a1" }
-midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "8a874a1" }
-midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "8a874a1" }
+midnight-circuits = { version = "6.0.0" }
+midnight-curves = { version = "0.2.0" }
+midnight-proofs = { version = "0.7.0" }
+midnight-zk-stdlib = { version = "1.0.0" }
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"
@@ -33,7 +34,7 @@ digest = { version = "0.10.7", features = ["alloc"] }
 
 [features]
 default = ["truncated-challenges"]
-truncated-challenges = ["midnight-circuits/truncated-challenges"]
+truncated-challenges = ["midnight-circuits/truncated-challenges", "midnight-proofs/truncated-challenges"]
 
 [[bench]]
 name = "signature"

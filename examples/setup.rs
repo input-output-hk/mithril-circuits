@@ -28,10 +28,9 @@ fn open(path: &str) -> ParamsKZG<Bls12>{
 }
 
 fn main() -> io::Result<()> {
-    //const K: u32 = 19;
-    //const K: u32 = 13;
-    //const K: u32 = 16;
-    const K: u32 = 18;
+    // const K: u32 = 13;
+    // const K: u32 = 16;
+    const K: u32 = 21;
     let path = format!("examples/assets/params_kzg_unsafe_{}", K);
 
     create(K, &path);

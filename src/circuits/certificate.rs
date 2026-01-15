@@ -160,8 +160,11 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: false,
-            sha512: false,
+            sha2_256: false,
+            sha2_512: false,
+            sha3_256: false,
+            keccak_256: false,
+            blake2b: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
@@ -204,16 +207,16 @@ impl Relation for Certificate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::certificate::Certificate;
-    use crate::merkle_tree::MerkleTree;
     use crate::{
-        Bls12, MidnightCircuit, compact_std_lib,
+        Bls12,
         unique_signature::{SigningKey, VerificationKey},
     };
-    use ff::Field;
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
+    use midnight_zk_stdlib::MidnightCircuit;
+    use midnight_zk_stdlib as zk;
+    use crate::merkle_tree::MerkleTree;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
+    use ff::Field;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
@@ -267,12 +270,12 @@ mod tests {
             println!("k (selected) {k}");
             println!("quorum {quorum}");
             println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", compact_std_lib::cost_model(&relation));
+            println!("{:?}", zk::cost_model(&relation));
         }
 
         let start = Instant::now();
-        let vk = compact_std_lib::setup_vk(&srs, &relation);
-        let pk = compact_std_lib::setup_pk(&relation, &vk);
+        let vk = zk::setup_vk(&srs, &relation);
+        let pk = zk::setup_pk(&relation, &vk);
         let duration = start.elapsed();
         println!("\nvk pk generation took: {:?}", duration);
 
@@ -308,7 +311,7 @@ mod tests {
         let instance = (merkle_root, msg);
 
         let start = Instant::now();
-        let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(
+        let proof = zk::prove::<Certificate, blake2b_simd::State>(
             &srs,
             &pk,
             &relation,
@@ -323,7 +326,7 @@ mod tests {
 
         let start = Instant::now();
         assert!(
-            compact_std_lib::verify::<Certificate, blake2b_simd::State>(
+            zk::verify::<Certificate, blake2b_simd::State>(
                 &srs.verifier_params(),
                 &vk,
                 &instance,
@@ -352,8 +355,8 @@ mod tests {
 
     #[test]
     fn test_certificate_large() {
-        const K: u32 = 18;
-        const QUORUM: u32 = 128;
+        const K: u32 = 21;
+        const QUORUM: u32 = 1024;
         run_certificate_case("large", K, QUORUM);
     }
 }
