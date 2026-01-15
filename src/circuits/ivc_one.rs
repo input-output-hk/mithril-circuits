@@ -277,9 +277,9 @@ impl Circuit<F> for IvcCircuit {
 
             let factor = F::from(256u64);
             let bases: Vec<_> = (0..32)
-                .scan(F::ONE, |state, _| {
-                    let out = *state;
-                    *state *= factor;
+                .scan(F::ONE, |s, _| {
+                    let out = *s;
+                    *s *= factor;
                     Some(out)
                 })
                 .collect();
@@ -304,6 +304,7 @@ impl Circuit<F> for IvcCircuit {
             // Read the value of next merkle root and current epoch
             // digest(6) | bytes(32) | next_aggregate_verification_key(31) | bytes(44) | next_protocol_parameters(24) | bytes(32) | current_epoch(13) | bytes(8)
             // todo: check field keywords(?)
+            // todo: extract next protocol parameters
             let next_merkle_root_bytes = assigned_preimage[69..101].to_vec();
             let current_epoch_bytes = assigned_preimage[182..190].to_vec();
 
@@ -520,11 +521,11 @@ mod tests {
         },
         unique_signature::{Signature, SigningKey, VerificationKey},
     };
-    use crate::{certificate::Certificate, compact_std_lib};
+    use crate::{Relation, certificate::Certificate};
     use ff::Field;
-    use midnight_circuits::compact_std_lib::Relation;
     use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
     use std::fs::File;
@@ -756,8 +757,8 @@ mod tests {
         cert_srs.downsize(K_INNER);
 
         let start = Instant::now();
-        let cert_vk = compact_std_lib::setup_vk(&cert_srs, &cert_relation);
-        let cert_pk = compact_std_lib::setup_pk(&cert_relation, &cert_vk);
+        let cert_vk = zk::setup_vk(&cert_srs, &cert_relation);
+        let cert_pk = zk::setup_pk(&cert_relation, &cert_vk);
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("cert circuit vk pk generation took: {:?}", duration);
 
@@ -783,7 +784,7 @@ mod tests {
         let mut cert_accs = vec![cert_trivial_acc];
         for i in 1..NUM_CERT {
             let start = Instant::now();
-            let cert_proof = compact_std_lib::prove::<Certificate, PoseidonState<F>>(
+            let cert_proof = zk::prove::<Certificate, PoseidonState<F>>(
                 &cert_srs,
                 &cert_pk,
                 &cert_relation,
@@ -924,7 +925,7 @@ mod tests {
                 msg_preimage: Value::known(preimages[i].clone().try_into().unwrap()),
             };
 
-            // Set public inputs [genesis_msg, genesis_vk, state, msg, merkle_root, next_merkle_root, current_epoch, cert_vk, self_vk, acc]
+            // Set public inputs [genesis_msg, genesis_vk, state, cert_msg, merkle_root, next_merkle_root, current_epoch, cert_vk, self_vk, acc]
             let public_inputs = [
                 AssignedNative::<F>::as_public_input(&msgs[0]),
                 AssignedNativePoint::<Jubjub>::as_public_input(&genesis_vk.0),

@@ -207,16 +207,16 @@ impl Relation for Certificate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::merkle_tree::MerkleTree;
     use crate::{
         Bls12,
         unique_signature::{SigningKey, VerificationKey},
     };
-    use midnight_zk_stdlib::MidnightCircuit;
-    use midnight_zk_stdlib as zk;
-    use crate::merkle_tree::MerkleTree;
+    use ff::Field;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
-    use ff::Field;
+    use midnight_zk_stdlib as zk;
+    use midnight_zk_stdlib::MidnightCircuit;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
@@ -312,12 +312,7 @@ mod tests {
 
         let start = Instant::now();
         let proof = zk::prove::<Certificate, blake2b_simd::State>(
-            &srs,
-            &pk,
-            &relation,
-            &instance,
-            witness,
-            OsRng,
+            &srs, &pk, &relation, &instance, witness, OsRng,
         )
         .expect("Proof generation should not fail");
         let duration = start.elapsed();

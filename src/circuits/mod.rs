@@ -11,11 +11,11 @@ use num_integer::Integer;
 use num_traits::One;
 
 pub mod certificate;
-// pub mod certificate_alba;
-// pub mod ivc;
-// pub mod ivc_one;
-// pub mod ivc_sd;
-// pub mod wrapper_tx;
+pub mod certificate_alba;
+pub mod ivc;
+pub mod ivc_one;
+pub mod ivc_sd;
+pub mod wrapper_tx;
 
 type F = JubjubBase;
 type C = Jubjub;

@@ -403,12 +403,12 @@ mod tests {
         },
         unique_signature::{Signature, SigningKey, VerificationKey},
     };
-    use crate::{certificate::Certificate, compact_std_lib};
+    use crate::{Relation, certificate::Certificate};
     use ff::Field;
-    use midnight_circuits::compact_std_lib::Relation;
     use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::plonk::{ProvingKey, VerifyingKey};
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
     use std::fs::File;
@@ -623,8 +623,8 @@ mod tests {
         cert_srs.downsize(K_INNER);
 
         let start = Instant::now();
-        let cert_vk = compact_std_lib::setup_vk(&cert_srs, &cert_relation);
-        let cert_pk = compact_std_lib::setup_pk(&cert_relation, &cert_vk);
+        let cert_vk = zk::setup_vk(&cert_srs, &cert_relation);
+        let cert_pk = zk::setup_pk(&cert_relation, &cert_vk);
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("Certificate circuit vk pk generation took: {:?}", duration);
 
@@ -646,7 +646,7 @@ mod tests {
         );
 
         let start = Instant::now();
-        let cert_proof = compact_std_lib::prove::<Certificate, PoseidonState<F>>(
+        let cert_proof = zk::prove::<Certificate, PoseidonState<F>>(
             &cert_srs,
             &cert_pk,
             &cert_relation,
