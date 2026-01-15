@@ -160,8 +160,11 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: false,
-            sha512: false,
+            sha2_256: false,
+            sha2_512: false,
+            sha3_256: false,
+            keccak_256: false,
+            blake2b: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
@@ -204,16 +207,16 @@ impl Relation for Certificate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::certificate::Certificate;
     use crate::merkle_tree::MerkleTree;
     use crate::{
-        Bls12, MidnightCircuit, compact_std_lib,
+        Bls12,
         unique_signature::{SigningKey, VerificationKey},
     };
     use ff::Field;
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
+    use midnight_zk_stdlib::MidnightCircuit;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
@@ -248,31 +251,32 @@ mod tests {
         params
     }
 
-    #[test]
-    fn test_certificate() {
-        const K: u32 = 13;
-        // let srs = filecoin_srs(K);
-        let srs = open(K);
+    fn run_certificate_case(case_name: &str, k: u32, quorum: u32) {
+        // let srs = filecoin_srs(k);
+        let srs = open(k);
 
+        // Keep num_signers fixed for baseline comparisons.
         let num_signers: usize = 3000;
         let depth = num_signers.next_power_of_two().trailing_zeros();
-        let quorum = 3;
         let num_lotteries = quorum * 10;
         let relation = Certificate::new(quorum, num_lotteries, depth);
 
         let (sks, leaves, merkle_tree) = create_merkle_tree(num_signers);
 
         {
-            // print circuit size
+            // Print circuit sizing information.
             let circuit = MidnightCircuit::from_relation(&relation);
+            println!("\n=== Certificate case: {case_name} ===");
+            println!("k (selected) {k}");
+            println!("quorum {quorum}");
             println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", compact_std_lib::cost_model(&relation));
+            println!("{:?}", zk::cost_model(&relation));
         }
 
         let start = Instant::now();
-        let vk = compact_std_lib::setup_vk(&srs, &relation);
-        let pk = compact_std_lib::setup_pk(&relation, &vk);
-        let duration = start.elapsed(); // Measure the elapsed time after proof generation.
+        let vk = zk::setup_vk(&srs, &relation);
+        let pk = zk::setup_pk(&relation, &vk);
+        let duration = start.elapsed();
         println!("\nvk pk generation took: {:?}", duration);
 
         {
@@ -307,17 +311,17 @@ mod tests {
         let instance = (merkle_root, msg);
 
         let start = Instant::now();
-        let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(
+        let proof = zk::prove::<Certificate, blake2b_simd::State>(
             &srs, &pk, &relation, &instance, witness, OsRng,
         )
         .expect("Proof generation should not fail");
-        let duration = start.elapsed(); // Measure the elapsed time after proof generation.
+        let duration = start.elapsed();
         println!("\nProof generation took: {:?}", duration);
         println!("Proof size: {:?}", proof.len());
 
         let start = Instant::now();
         assert!(
-            compact_std_lib::verify::<Certificate, blake2b_simd::State>(
+            zk::verify::<Certificate, blake2b_simd::State>(
                 &srs.verifier_params(),
                 &vk,
                 &instance,
@@ -326,7 +330,28 @@ mod tests {
             )
             .is_ok()
         );
-        let duration = start.elapsed(); // Measure the elapsed time after proof generation.
+        let duration = start.elapsed();
         println!("Proof verification took: {:?}", duration);
+    }
+
+    #[test]
+    fn test_certificate_small() {
+        const K: u32 = 13;
+        const QUORUM: u32 = 3;
+        run_certificate_case("small", K, QUORUM);
+    }
+
+    #[test]
+    fn test_certificate_medium() {
+        const K: u32 = 16;
+        const QUORUM: u32 = 32;
+        run_certificate_case("medium", K, QUORUM);
+    }
+
+    #[test]
+    fn test_certificate_large() {
+        const K: u32 = 21;
+        const QUORUM: u32 = 1024;
+        run_certificate_case("large", K, QUORUM);
     }
 }

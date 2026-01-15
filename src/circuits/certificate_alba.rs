@@ -375,13 +375,16 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: false,
-            sha512: false,
+            sha2_256: false,
+            sha2_512: false,
+            keccak_256: false,
+            sha3_256: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
             nr_pow2range_cols: 2,
             automaton: false,
+            blake2b: false,
         }
     }
 
@@ -454,10 +457,9 @@ mod tests {
         unique_signature::{SigningKey, VerificationKey},
     };
     use ff::Field;
-    use midnight_circuits::compact_std_lib;
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
@@ -587,12 +589,12 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", compact_std_lib::cost_model(&relation));
+            println!("{:?}", zk::cost_model(&relation));
         }
 
         let start = Instant::now();
-        let vk = compact_std_lib::setup_vk(&srs, &relation);
-        let pk = compact_std_lib::setup_pk(&relation, &vk);
+        let vk = zk::setup_vk(&srs, &relation);
+        let pk = zk::setup_pk(&relation, &vk);
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("\nvk pk generation took: {:?}", duration);
 
@@ -605,7 +607,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(
+        let proof = zk::prove::<Certificate, blake2b_simd::State>(
             &srs, &pk, &relation, &instance, witness, OsRng,
         )
         .expect("Proof generation should not fail");
@@ -616,7 +618,7 @@ mod tests {
 
         let start = Instant::now();
         assert!(
-            compact_std_lib::verify::<Certificate, blake2b_simd::State>(
+            zk::verify::<Certificate, blake2b_simd::State>(
                 &srs.verifier_params(),
                 &vk,
                 &instance,

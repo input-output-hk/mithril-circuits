@@ -15,8 +15,9 @@ pub use midnight_curves::{
 pub use circuits::*;
 pub use signatures::*;
 
+use midnight_zk_stdlib::{MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch};
+
 use midnight_circuits::{
-    compact_std_lib::{self, MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch},
     ecc::{
         curves::CircuitCurve,
         foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
