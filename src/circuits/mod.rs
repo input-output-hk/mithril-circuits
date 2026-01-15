@@ -249,11 +249,10 @@ fn verify_lottery(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        MidnightCircuit, PublicInputInstructions, Relation, Value, ZkStdLibArch, compact_std_lib,
-    };
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
+    use crate::{MidnightCircuit, PublicInputInstructions, Relation, Value, ZkStdLibArch};
     use midnight_proofs::dev::MockProver;
+    use midnight_zk_stdlib as zk;
+    use midnight_zk_stdlib::utils::plonk_api::filecoin_srs;
 
     #[derive(Clone, Default)]
     pub struct TestCircuit;
@@ -289,13 +288,16 @@ mod tests {
             ZkStdLibArch {
                 jubjub: true,
                 poseidon: false,
-                sha256: false,
-                sha512: false,
+                sha2_256: false,
+                sha2_512: false,
+                keccak_256: false,
+                sha3_256: false,
                 secp256k1: false,
                 bls12_381: false,
                 base64: false,
-                nr_pow2range_cols: 1,
+                nr_pow2range_cols: 2,
                 automaton: false,
+                blake2b: false,
             }
         }
 
@@ -317,7 +319,7 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", compact_std_lib::cost_model(&relation));
+            println!("{:?}", zk::cost_model(&relation));
         }
 
         {
