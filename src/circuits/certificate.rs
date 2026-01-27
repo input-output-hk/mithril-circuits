@@ -76,7 +76,7 @@ impl Relation for Certificate {
 
             // Check index order
             if i > 0 {
-                let is_less = std_lib.lower_than(layouter, &pre_index, &index, 32)?;
+                let is_less = std_lib.lower_than(layouter, &pre_index, &index, 16)?;
                 std_lib.assert_true(layouter, &is_less)?;
             }
 
@@ -151,7 +151,7 @@ impl Relation for Certificate {
 
         // m can be put as a public instance or a constant
         let m = std_lib.assign_fixed(layouter, F::from(self.num_lotteries as u64))?;
-        let is_less = std_lib.lower_than(layouter, &pre_index, &m, 32)?;
+        let is_less = std_lib.lower_than(layouter, &pre_index, &m, 16)?;
 
         std_lib.assert_true(layouter, &is_less)
     }
