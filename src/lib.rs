@@ -15,9 +15,11 @@ pub use midnight_curves::{
 pub use circuits::*;
 pub use signatures::*;
 
-use midnight_zk_stdlib::{MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch};
+pub use midnight_zk_stdlib::{
+    MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch, utils::plonk_api::filecoin_srs,
+};
 
-use midnight_circuits::{
+pub use midnight_circuits::{
     ecc::{
         curves::CircuitCurve,
         foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
@@ -53,8 +55,9 @@ use midnight_circuits::{
     },
 };
 
-use midnight_proofs::{
+pub use midnight_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
+    dev::cost_model::circuit_model,
     plonk::{Circuit, ConstraintSystem, Error, create_proof, keygen_pk, keygen_vk_with_k, prepare},
     poly::kzg::params::ParamsKZG,
     poly::{EvaluationDomain, kzg::KZGCommitmentScheme},

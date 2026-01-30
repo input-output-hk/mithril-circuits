@@ -20,8 +20,9 @@ pub mod wrapper_tx;
 type F = JubjubBase;
 type C = Jubjub;
 
-const CERT_VK_NAME: &str = "cert_vk";
-const IVC_SD_NAME: &str = "ivc_sd_vk";
+pub const CERT_VK_NAME: &str = "cert_vk";
+pub const IVC_SD_NAME: &str = "ivc_sd_vk";
+pub const IVC_ONE_NAME: &str = "ivc_one_vk";
 
 fn div_rem_native(
     std_lib: &ZkStdLib,

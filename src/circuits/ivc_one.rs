@@ -9,12 +9,12 @@ use crate::{
     NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip,
     P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions,
     SelfEmulation, SimpleFloorPlanner, Value, VerifierGadget, ZeroInstructions,
+    circuits::{CERT_VK_NAME, IVC_ONE_NAME},
     nb_foreign_ecc_chip_columns,
     schnorr_signature::{Signature as SchnorrSignature, VerificationKey as SchnorrVerificationKey},
     verifier,
 };
 
-use crate::circuits::{CERT_VK_NAME, IVC_SD_NAME};
 use ff::Field;
 use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
@@ -478,7 +478,7 @@ impl Circuit<F> for IvcCircuit {
             let (self_domain, self_cs, self_vk_value) = &self.self_vk;
             let assigned_self_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
                 &mut layouter,
-                IVC_SD_NAME,
+                IVC_ONE_NAME,
                 self_domain,
                 self_cs,
                 *self_vk_value,
@@ -489,7 +489,7 @@ impl Circuit<F> for IvcCircuit {
             let prev_acc = {
                 let mut fixed_base_names = vec![String::from("com_instance")];
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    IVC_SD_NAME,
+                    IVC_ONE_NAME,
                     self_cs.num_fixed_columns() + self_cs.num_selectors(),
                     self_cs.permutation().columns.len(),
                 ));
@@ -940,7 +940,7 @@ mod tests {
 
         let mut self_fixed_bases = BTreeMap::new();
         self_fixed_bases.insert(String::from("com_instance"), C::identity());
-        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_SD_NAME, &self_vk));
+        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_ONE_NAME, &self_vk));
         let self_fixed_base_names = self_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
             "IVC fixed base name length {:?}",
