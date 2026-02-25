@@ -15,8 +15,11 @@ pub use midnight_curves::{
 pub use circuits::*;
 pub use signatures::*;
 
-use midnight_circuits::{
-    compact_std_lib::{self, MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch},
+pub use midnight_zk_stdlib::{
+    MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch, utils::plonk_api::filecoin_srs,
+};
+
+pub use midnight_circuits::{
     ecc::{
         curves::CircuitCurve,
         foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
@@ -38,9 +41,10 @@ use midnight_circuits::{
     },
     instructions::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
-        ControlFlowInstructions, ConversionInstructions, EccInstructions, EqualityInstructions,
-        HashInstructions, HashToCurveCPU, PublicInputInstructions, RangeCheckInstructions,
-        ZeroInstructions, hash::HashCPU, public_input::CommittedInstanceInstructions,
+        ControlFlowInstructions, ConversionInstructions, DecompositionInstructions,
+        EccInstructions, EqualityInstructions, HashInstructions, HashToCurveCPU,
+        PublicInputInstructions, RangeCheckInstructions, ZeroInstructions, hash::HashCPU,
+        public_input::CommittedInstanceInstructions,
     },
     types::{
         AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
@@ -52,9 +56,13 @@ use midnight_circuits::{
     },
 };
 
-use midnight_proofs::{
+pub use midnight_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
-    plonk::{Circuit, ConstraintSystem, Error, create_proof, keygen_pk, keygen_vk_with_k, prepare},
+    dev::cost_model::circuit_model,
+    plonk::{
+        Circuit, ConstraintSystem, Error, commit_to_instances, create_proof, keygen_pk,
+        keygen_vk_with_k, prepare,
+    },
     poly::kzg::params::ParamsKZG,
     poly::{EvaluationDomain, kzg::KZGCommitmentScheme},
     transcript::{CircuitTranscript, Transcript},

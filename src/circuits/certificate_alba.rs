@@ -1,12 +1,11 @@
+use crate::circuits::assert_equal_parity;
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
     AssignedScalarOfNativeCurve, AssignmentInstructions, CircuitCurve, ConversionInstructions,
     DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, DST_LOTTERY, DST_UNIQUE_SIGNATURE, Error, Jubjub,
     Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions, RangeCheckInstructions,
     Relation, Value, ZkStdLib, ZkStdLibArch,
-    circuits::{
-        C, F, div_rem_native_by_base, verify_lottery, verify_merkle_path, verify_unique_signature,
-    },
+    circuits::{C, F, div_rem_native, verify_lottery, verify_merkle_path, verify_unique_signature},
     merkle_tree::{MTLeaf, MerklePath},
     unique_signature::Signature,
     utils::{big_to_fe, split},
@@ -181,7 +180,7 @@ impl Relation for Certificate {
         let alba_high_bound = BigUint::one() << ALBA_NUM_HIGH_BITS;
 
         for wit in proofs.into_iter() {
-            // assert lottery_index < m
+            // Assert lottery_index < m
             let lottery_index: AssignedNative<F> = std_lib.assign_lower_than_fixed(
                 layouter,
                 wit.clone().map(|(_, _, _, i)| F::from(i as u64)),
@@ -286,14 +285,19 @@ impl Relation for Certificate {
                 let bin_high_assigned =
                     std_lib.assign_lower_than_fixed(layouter, bin_high, &alba_high_bound)?;
 
-                // assign lower bits: round_low < alba_sample_bound, bin_low < alba_sample_bound, alba_sample_bound = ((2^ALBA_NUM_LOW_BITS-1) / base)*base
-                // this bound is sufficient because alba_sample_bound < 2^ALBA_NUM_LOW_BITS
+                // Assign lower bits: round_low < alba_sample_bound, bin_low < alba_sample_bound, alba_sample_bound = ((2^ALBA_NUM_LOW_BITS-1) / base)*base
+                // This bound is sufficient because alba_sample_bound < 2^ALBA_NUM_LOW_BITS
                 let round_low_assigned: AssignedNative<_> =
                     std_lib.assign_lower_than_fixed(layouter, round_low, &alba_sample_bound)?;
                 let bin_low_assigned: AssignedNative<_> =
                     std_lib.assign_lower_than_fixed(layouter, bin_low, &alba_sample_bound)?;
 
-                // verify alba_round_hash = round_low + (round_high << num_low_bits)
+                // Verify the least significant bit is consistent to make sure the decomposition is unique
+                // This works because the modulus is an odd number
+                assert_equal_parity(std_lib, layouter, &round_low_assigned, &alba_round_hash)?;
+                assert_equal_parity(std_lib, layouter, &bin_low_assigned, &alba_bin_hash)?;
+
+                // Verify alba_round_hash = round_low + (round_high << num_low_bits)
                 let round_combined = std_lib.linear_combination(
                     layouter,
                     &[
@@ -304,7 +308,7 @@ impl Relation for Certificate {
                 )?;
                 std_lib.assert_equal(layouter, &alba_round_hash, &round_combined)?;
 
-                // verify alba_bin_hash = bin_low + (bin_high << num_low_bits)
+                // Verify alba_bin_hash = bin_low + (bin_high << num_low_bits)
                 let bin_combined = std_lib.linear_combination(
                     layouter,
                     &[
@@ -315,15 +319,15 @@ impl Relation for Certificate {
                 )?;
                 std_lib.assert_equal(layouter, &alba_bin_hash, &bin_combined)?;
 
-                // verify round_low - bin_low = 0 (mod set_size)
-                let (_, rem_round) = div_rem_native_by_base(
+                // Verify round_low - bin_low = 0 (mod set_size)
+                let (_, rem_round) = div_rem_native(
                     std_lib,
                     layouter,
                     &round_low_assigned,
                     ALBA_NUM_LOW_BITS,
                     self.alba_params.set_size,
                 )?;
-                let (_, rem_bin) = div_rem_native_by_base(
+                let (_, rem_bin) = div_rem_native(
                     std_lib,
                     layouter,
                     &bin_low_assigned,
@@ -344,7 +348,7 @@ impl Relation for Certificate {
             let (proof_hash_low, proof_hash_high) = proof_hash_value
                 .map(|v| split(v, ALBA_NUM_LOW_BITS))
                 .unzip();
-            // this bound is sufficient when num_bits(valid_proof_target) <= ALBA_NUM_LOW_BITS
+            // This bound is sufficient when num_bits(valid_proof_target) <= ALBA_NUM_LOW_BITS
             let proof_hash_low_assigned = std_lib.assign_lower_than_fixed(
                 layouter,
                 proof_hash_low,
@@ -361,6 +365,7 @@ impl Relation for Certificate {
                 F::ZERO,
             )?;
             std_lib.assert_equal(layouter, &proof_hash, &combined)?;
+            assert_equal_parity(std_lib, layouter, &proof_hash_low_assigned, &proof_hash)?;
         }
 
         Ok(())
@@ -370,13 +375,16 @@ impl Relation for Certificate {
         ZkStdLibArch {
             jubjub: true,
             poseidon: true,
-            sha256: false,
-            sha512: false,
+            sha2_256: false,
+            sha2_512: false,
+            keccak_256: false,
+            sha3_256: false,
             secp256k1: false,
             bls12_381: false,
             base64: false,
             nr_pow2range_cols: 2,
             automaton: false,
+            blake2b: false,
         }
     }
 
@@ -449,10 +457,9 @@ mod tests {
         unique_signature::{SigningKey, VerificationKey},
     };
     use ff::Field;
-    use midnight_circuits::compact_std_lib;
-    use midnight_circuits::testing_utils::plonk_api::filecoin_srs;
     use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
     use rand_chacha::ChaCha20Rng;
     use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
@@ -502,7 +509,7 @@ mod tests {
             let computed_root = merkle_path.compute_root(leaves[i]);
             assert_eq!(merkle_root, computed_root);
 
-            // any index is eligible as target is set to be the maximum
+            // Any index is eligible as target is set to be the maximum
             let element = Element::new((i + 1) as u32, None);
             proofs.insert(element.to_field(), (leaves[i], merkle_path, sig));
             indices.push((i + 1) as u32);
@@ -582,12 +589,12 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation);
             println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", compact_std_lib::cost_model(&relation));
+            println!("{:?}", zk::cost_model(&relation));
         }
 
         let start = Instant::now();
-        let vk = compact_std_lib::setup_vk(&srs, &relation);
-        let pk = compact_std_lib::setup_pk(&relation, &vk);
+        let vk = zk::setup_vk(&srs, &relation);
+        let pk = zk::setup_pk(&relation, &vk);
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("\nvk pk generation took: {:?}", duration);
 
@@ -600,7 +607,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let proof = compact_std_lib::prove::<Certificate, blake2b_simd::State>(
+        let proof = zk::prove::<Certificate, blake2b_simd::State>(
             &srs, &pk, &relation, &instance, witness, OsRng,
         )
         .expect("Proof generation should not fail");
@@ -611,7 +618,7 @@ mod tests {
 
         let start = Instant::now();
         assert!(
-            compact_std_lib::verify::<Certificate, blake2b_simd::State>(
+            zk::verify::<Certificate, blake2b_simd::State>(
                 &srs.verifier_params(),
                 &vk,
                 &instance,

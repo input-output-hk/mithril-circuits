@@ -9,12 +9,12 @@ use crate::{
     NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip,
     P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions,
     SelfEmulation, SimpleFloorPlanner, Value, VerifierGadget, ZeroInstructions,
+    circuits::{CERT_VK_NAME, IVC_ONE_NAME},
     nb_foreign_ecc_chip_columns,
     schnorr_signature::{Signature as SchnorrSignature, VerificationKey as SchnorrVerificationKey},
     verifier,
 };
 
-use crate::circuits::{CERT_VK_NAME, IVC_SD_NAME};
 use ff::Field;
 use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
@@ -56,6 +56,8 @@ pub struct IvcCircuit {
     pub prev_msg: Value<F>,
     pub prev_merkle_root: Value<F>,
     pub prev_next_merkle_root: Value<F>,
+    pub prev_protocol_params: Value<F>,
+    pub prev_next_protocol_params: Value<F>,
     pub prev_current_epoch: Value<F>,
     pub prev_proof: Value<Vec<u8>>,
     pub prev_acc: Value<Accumulator<S>>,
@@ -183,10 +185,12 @@ impl Circuit<F> for IvcCircuit {
             prev_msg,
             prev_merkle_root,
             prev_next_merkle_root,
+            prev_protocol_params,
+            prev_next_protocol_params,
             prev_current_epoch,
             cert_merkle_root,
             cert_msg,
-        ]: [AssignedNative<_>; 7] = native_gadget
+        ]: [AssignedNative<_>; 9] = native_gadget
             .assign_many(
                 &mut layouter,
                 &[
@@ -194,6 +198,8 @@ impl Circuit<F> for IvcCircuit {
                     self.prev_msg,
                     self.prev_merkle_root,
                     self.prev_next_merkle_root,
+                    self.prev_protocol_params,
+                    self.prev_next_protocol_params,
                     self.prev_current_epoch,
                     self.cert_merkle_root,
                     self.cert_msg,
@@ -277,9 +283,9 @@ impl Circuit<F> for IvcCircuit {
 
             let factor = F::from(256u64);
             let bases: Vec<_> = (0..32)
-                .scan(F::ONE, |state, _| {
-                    let out = *state;
-                    *state *= factor;
+                .scan(F::ONE, |s, _| {
+                    let out = *s;
+                    *s *= factor;
                     Some(out)
                 })
                 .collect();
@@ -305,10 +311,10 @@ impl Circuit<F> for IvcCircuit {
             // digest(6) | bytes(32) | next_aggregate_verification_key(31) | bytes(44) | next_protocol_parameters(24) | bytes(32) | current_epoch(13) | bytes(8)
             // todo: check field keywords(?)
             let next_merkle_root_bytes = assigned_preimage[69..101].to_vec();
+            let next_protocol_params_bytes = assigned_preimage[137..169].to_vec();
             let current_epoch_bytes = assigned_preimage[182..190].to_vec();
 
-            {
-                // Constraint the next merkle root as public input
+            let next_merkle_root = {
                 let mut items = vec![];
                 for (v, base) in next_merkle_root_bytes.into_iter().zip(bases.iter()) {
                     items.push((*base, v.into()));
@@ -316,7 +322,8 @@ impl Circuit<F> for IvcCircuit {
                 let next_merkle_root =
                     native_gadget.linear_combination(&mut layouter, &items, F::ZERO)?;
                 native_gadget.constrain_as_public_input(&mut layouter, &next_merkle_root)?;
-            }
+                next_merkle_root
+            };
 
             let (is_same_epoch, is_next_epoch) = {
                 // Constraint the current epoch as public input
@@ -332,7 +339,7 @@ impl Circuit<F> for IvcCircuit {
                 let is_same_epoch =
                     native_gadget.is_equal(&mut layouter, &current_epoch, &prev_current_epoch)?;
 
-                //  current_epoch = prev_current_epoch + 1
+                //  current_epoch == prev_current_epoch + 1
                 let next =
                     native_gadget.add_constant(&mut layouter, &prev_current_epoch, F::ONE)?;
                 let is_next_epoch = native_gadget.is_equal(&mut layouter, &current_epoch, &next)?;
@@ -355,22 +362,86 @@ impl Circuit<F> for IvcCircuit {
             };
 
             {
-                // Check the link on merkle root; if it is genesis, skip the checking
+                // Check the link on the current merkle root; if it is genesis, skip the checking
+                // Assert true: is_genesis or (is_same_epoch && merkle_root == prev_merkle_root) or (is_next_epoch && merkle_root == prev_next_merkle_root)
                 let mut is_equal_current =
                     native_gadget.is_equal(&mut layouter, &merkle_root, &prev_merkle_root)?;
                 is_equal_current =
-                    native_gadget.and(&mut layouter, &[is_equal_current, is_same_epoch])?;
+                    native_gadget.and(&mut layouter, &[is_equal_current, is_same_epoch.clone()])?;
 
                 let mut is_equal_next =
                     native_gadget.is_equal(&mut layouter, &merkle_root, &prev_next_merkle_root)?;
                 is_equal_next =
-                    native_gadget.and(&mut layouter, &[is_equal_next, is_next_epoch])?;
+                    native_gadget.and(&mut layouter, &[is_equal_next, is_next_epoch.clone()])?;
 
                 let is_link_valid = native_gadget.or(
                     &mut layouter,
-                    &[is_genesis, is_equal_current, is_equal_next],
+                    &[is_genesis.clone(), is_equal_current, is_equal_next],
                 )?;
                 native_gadget.assert_equal_to_fixed(&mut layouter, &is_link_valid, true)?;
+            }
+
+            {
+                // Check the consistence on next_merkle_root for certificates of the same epoch
+                // Assert true: is_genesis or (is_same_epoch && next_merkle_root == prev_next_merkle_root) or is_next_epoch
+                let mut is_valid = native_gadget.is_equal(
+                    &mut layouter,
+                    &next_merkle_root,
+                    &prev_next_merkle_root,
+                )?;
+                is_valid = native_gadget.and(&mut layouter, &[is_valid, is_same_epoch.clone()])?;
+                is_valid = native_gadget.or(
+                    &mut layouter,
+                    &[is_genesis.clone(), is_valid, is_next_epoch.clone()],
+                )?;
+                native_gadget.assert_equal_to_fixed(&mut layouter, &is_valid, true)?;
+            }
+
+            {
+                // If genesis: protocol_params = 0
+                // Else:
+                //     if same_epoch: protocol_params = prev_protocol_params;
+                //     else: protocol_params = prev_next_protocol_params
+                let mut protocol_params = native_gadget.select(
+                    &mut layouter,
+                    &is_genesis,
+                    &zero,
+                    &prev_next_protocol_params,
+                )?;
+                let is_same_epoch_not_genesis = native_gadget.and(
+                    &mut layouter,
+                    &[is_same_epoch.clone(), is_not_genesis.clone()],
+                )?;
+                protocol_params = native_gadget.select(
+                    &mut layouter,
+                    &is_same_epoch_not_genesis,
+                    &prev_protocol_params,
+                    &protocol_params,
+                )?;
+                native_gadget.constrain_as_public_input(&mut layouter, &protocol_params)?;
+            };
+
+            {
+                // Get the value of next protocol parameters
+                let mut items = vec![];
+                for (v, base) in next_protocol_params_bytes.into_iter().zip(bases.iter()) {
+                    items.push((*base, v.into()));
+                }
+                let next_protocol_params =
+                    native_gadget.linear_combination(&mut layouter, &items, F::ZERO)?;
+                native_gadget.constrain_as_public_input(&mut layouter, &next_protocol_params)?;
+
+                // Check the consistence on next_protocol_params for certificates of the same epoch
+                // Assert true: is_genesis or (is_same_epoch && next_protocol_params == prev_next_protocol_params) or is_next_epoch
+                let mut is_valid = native_gadget.is_equal(
+                    &mut layouter,
+                    &next_protocol_params,
+                    &prev_next_protocol_params,
+                )?;
+                is_valid = native_gadget.and(&mut layouter, &[is_valid, is_same_epoch])?;
+                is_valid =
+                    native_gadget.or(&mut layouter, &[is_genesis, is_valid, is_next_epoch])?;
+                native_gadget.assert_equal_to_fixed(&mut layouter, &is_valid, true)?;
             }
         }
 
@@ -407,7 +478,7 @@ impl Circuit<F> for IvcCircuit {
             let (self_domain, self_cs, self_vk_value) = &self.self_vk;
             let assigned_self_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
                 &mut layouter,
-                IVC_SD_NAME,
+                IVC_ONE_NAME,
                 self_domain,
                 self_cs,
                 *self_vk_value,
@@ -418,7 +489,7 @@ impl Circuit<F> for IvcCircuit {
             let prev_acc = {
                 let mut fixed_base_names = vec![String::from("com_instance")];
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    IVC_SD_NAME,
+                    IVC_ONE_NAME,
                     self_cs.num_fixed_columns() + self_cs.num_selectors(),
                     self_cs.permutation().columns.len(),
                 ));
@@ -456,6 +527,8 @@ impl Circuit<F> for IvcCircuit {
                     prev_merkle_root,
                     prev_next_merkle_root,
                     prev_current_epoch,
+                    prev_protocol_params,
+                    prev_next_protocol_params,
                 ],
                 verifier_chip.as_public_input(&mut layouter, &assigned_cert_vk)?,
                 verifier_chip.as_public_input(&mut layouter, &assigned_self_vk)?,
@@ -504,8 +577,7 @@ impl Circuit<F> for IvcCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::*;
-    use crate::merkle_tree::{MTLeaf, MerklePath, MerkleTree, MerkleTreeCommitment};
+    use crate::merkle_tree::{MTLeaf, MerklePath, MerkleTree};
     use crate::protocol_message::{
         AggregateVerificationKey, ProtocolMessage, ProtocolMessagePartKey,
     };
@@ -520,11 +592,11 @@ mod tests {
         },
         unique_signature::{Signature, SigningKey, VerificationKey},
     };
-    use crate::{certificate::Certificate, compact_std_lib};
+    use crate::{Relation, certificate::Certificate};
     use ff::Field;
-    use midnight_circuits::compact_std_lib::Relation;
     use midnight_proofs::dev::cost_model::circuit_model;
     use midnight_proofs::utils::SerdeFormat;
+    use midnight_zk_stdlib as zk;
     use rand_core::OsRng;
     use std::collections::BTreeMap;
     use std::fs::File;
@@ -567,6 +639,8 @@ mod tests {
         Vec<Msg>,
         Vec<MerkleRoot>,
         Vec<MerkleRoot>,
+        Vec<F>,
+        Vec<F>,
         Vec<Vec<u8>>,
         Vec<Vec<(MTLeaf, MerklePath, Signature, u32)>>,
         Vec<Vec<F>>,
@@ -591,6 +665,7 @@ mod tests {
         let genesis_vk = SchnorrVerificationKey::from(&genesis_sk);
         let genesis_epoch = 5u64;
         let genesis_next_merkle_root = merkle_tree.root();
+        let genesis_next_protocol_params = F::from(7u64);
 
         let (genesis_msg, genesis_preimage) = {
             let mut protocol_message = ProtocolMessage::new();
@@ -601,7 +676,7 @@ mod tests {
             );
             protocol_message.set_message_part(
                 ProtocolMessagePartKey::NextProtocolParameters,
-                vec![0u8; 32],
+                genesis_next_protocol_params.to_bytes_le().to_vec(),
             );
             protocol_message.set_message_part(
                 ProtocolMessagePartKey::CurrentEpoch,
@@ -619,10 +694,11 @@ mod tests {
         let mut witnesses = vec![vec![]];
         let mut merkle_roots = vec![F::ZERO];
         let mut next_merkle_roots = vec![genesis_next_merkle_root];
+        let mut protocol_params = vec![F::ZERO];
+        let mut next_protocol_params = vec![genesis_next_protocol_params];
         let mut instances = vec![vec![]];
 
         let mut current_epoch = genesis_epoch;
-        let merkle_root = merkle_tree.root();
         for i in 1..NUM_CERT {
             current_epoch += 1;
             let (msg, preimage) = {
@@ -634,7 +710,7 @@ mod tests {
                 );
                 protocol_message.set_message_part(
                     ProtocolMessagePartKey::NextProtocolParameters,
-                    vec![0u8; 32],
+                    genesis_next_protocol_params.to_bytes_le().to_vec(),
                 );
                 protocol_message.set_message_part(
                     ProtocolMessagePartKey::CurrentEpoch,
@@ -649,24 +725,26 @@ mod tests {
             for j in 0..quorum as usize {
                 let usk = sks[j].clone();
                 let uvk = leaves[j].0;
-                let sig = usk.sign(&[merkle_root, msg], &mut OsRng);
-                sig.verify(&[merkle_root, msg], &uvk).unwrap();
+                let sig = usk.sign(&[genesis_next_merkle_root, msg], &mut OsRng);
+                sig.verify(&[genesis_next_merkle_root, msg], &uvk).unwrap();
 
                 let merkle_path = merkle_tree.get_path(j);
                 let computed_root = merkle_path.compute_root(leaves[j]);
-                assert_eq!(merkle_root, computed_root);
+                assert_eq!(genesis_next_merkle_root, computed_root);
 
                 // Any index is eligible as target is set to be the maximum
                 witness.push((leaves[j], merkle_path, sig, (j + 1) as u32));
             }
 
-            let instance = Certificate::format_instance(&(merkle_root, msg)).unwrap();
+            let instance = Certificate::format_instance(&(genesis_next_merkle_root, msg)).unwrap();
 
             msgs.push(msg);
             preimages.push(preimage);
             witnesses.push(witness);
-            merkle_roots.push(merkle_root);
-            next_merkle_roots.push(merkle_root);
+            merkle_roots.push(genesis_next_merkle_root);
+            next_merkle_roots.push(genesis_next_merkle_root);
+            protocol_params.push(genesis_next_protocol_params);
+            next_protocol_params.push(genesis_next_protocol_params);
             instances.push(instance);
         }
 
@@ -678,6 +756,8 @@ mod tests {
             msgs,
             merkle_roots,
             next_merkle_roots,
+            protocol_params,
+            next_protocol_params,
             preimages,
             witnesses,
             instances,
@@ -744,6 +824,8 @@ mod tests {
             msgs,
             merkle_roots,
             next_merkle_roots,
+            protocol_params,
+            next_protocol_params,
             preimages,
             witnesses,
             instances,
@@ -756,8 +838,8 @@ mod tests {
         cert_srs.downsize(K_INNER);
 
         let start = Instant::now();
-        let cert_vk = compact_std_lib::setup_vk(&cert_srs, &cert_relation);
-        let cert_pk = compact_std_lib::setup_pk(&cert_relation, &cert_vk);
+        let cert_vk = zk::setup_vk(&cert_srs, &cert_relation);
+        let cert_pk = zk::setup_pk(&cert_relation, &cert_vk);
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("cert circuit vk pk generation took: {:?}", duration);
 
@@ -783,7 +865,7 @@ mod tests {
         let mut cert_accs = vec![cert_trivial_acc];
         for i in 1..NUM_CERT {
             let start = Instant::now();
-            let cert_proof = compact_std_lib::prove::<Certificate, PoseidonState<F>>(
+            let cert_proof = zk::prove::<Certificate, PoseidonState<F>>(
                 &cert_srs,
                 &cert_pk,
                 &cert_relation,
@@ -820,6 +902,8 @@ mod tests {
             prev_merkle_root: Value::unknown(),
             prev_next_merkle_root: Value::unknown(),
             prev_current_epoch: Value::unknown(),
+            prev_protocol_params: Value::unknown(),
+            prev_next_protocol_params: Value::unknown(),
             prev_proof: Value::unknown(),
             prev_acc: Value::unknown(),
             genesis_vk: Value::known(genesis_vk),
@@ -856,7 +940,7 @@ mod tests {
 
         let mut self_fixed_bases = BTreeMap::new();
         self_fixed_bases.insert(String::from("com_instance"), C::identity());
-        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_SD_NAME, &self_vk));
+        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_ONE_NAME, &self_vk));
         let self_fixed_base_names = self_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
             "IVC fixed base name length {:?}",
@@ -890,6 +974,8 @@ mod tests {
         let mut prev_merkle_root = F::ZERO;
         let mut prev_next_merkle_root = F::ZERO;
         let mut prev_current_epoch = F::ZERO;
+        let mut prev_protocol_params = F::ZERO;
+        let mut prev_next_protocol_params = F::ZERO;
         let mut prev_proof: Vec<u8> = vec![];
         let mut prev_acc = trivial_acc.clone();
 
@@ -908,6 +994,8 @@ mod tests {
                 prev_merkle_root: Value::known(prev_merkle_root),
                 prev_next_merkle_root: Value::known(prev_next_merkle_root),
                 prev_current_epoch: Value::known(prev_current_epoch),
+                prev_protocol_params: Value::known(prev_protocol_params),
+                prev_next_protocol_params: Value::known(prev_next_protocol_params),
                 prev_proof: Value::known(prev_proof.clone()),
                 prev_acc: Value::known(prev_acc.clone()),
                 genesis_vk: Value::known(genesis_vk),
@@ -924,7 +1012,7 @@ mod tests {
                 msg_preimage: Value::known(preimages[i].clone().try_into().unwrap()),
             };
 
-            // Set public inputs [genesis_msg, genesis_vk, state, msg, merkle_root, next_merkle_root, current_epoch, cert_vk, self_vk, acc]
+            // Set public inputs [genesis_msg, genesis_vk, state, cert_msg, merkle_root, next_merkle_root, current_epoch, cert_vk, self_vk, acc]
             let public_inputs = [
                 AssignedNative::<F>::as_public_input(&msgs[0]),
                 AssignedNativePoint::<Jubjub>::as_public_input(&genesis_vk.0),
@@ -933,6 +1021,8 @@ mod tests {
                 AssignedNative::<F>::as_public_input(&merkle_roots[i]),
                 AssignedNative::<F>::as_public_input(&next_merkle_roots[i]),
                 AssignedNative::<F>::as_public_input(&current_epoch),
+                AssignedNative::<F>::as_public_input(&protocol_params[i]),
+                AssignedNative::<F>::as_public_input(&next_protocol_params[i]),
                 AssignedVk::<S>::as_public_input(&cert_vk.vk()),
                 AssignedVk::<S>::as_public_input(&self_vk),
                 AssignedAccumulator::as_public_input(&acc),
@@ -975,6 +1065,8 @@ mod tests {
             prev_merkle_root = merkle_roots[i];
             prev_next_merkle_root = next_merkle_roots[i];
             prev_current_epoch = current_epoch;
+            prev_protocol_params = protocol_params[i];
+            prev_next_protocol_params = next_protocol_params[i];
             prev_proof = proof;
             prev_acc = acc.clone();
 
@@ -1012,6 +1104,8 @@ mod tests {
                     AssignedNative::<F>::as_public_input(&prev_merkle_root),
                     AssignedNative::<F>::as_public_input(&prev_next_merkle_root),
                     AssignedNative::<F>::as_public_input(&prev_current_epoch),
+                    AssignedNative::<F>::as_public_input(&prev_protocol_params),
+                    AssignedNative::<F>::as_public_input(&prev_next_protocol_params),
                     AssignedVk::<S>::as_public_input(&cert_vk.vk()),
                     AssignedVk::<S>::as_public_input(&self_vk),
                     AssignedAccumulator::as_public_input(&prev_acc),
