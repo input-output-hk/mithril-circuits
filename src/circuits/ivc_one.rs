@@ -54,6 +54,7 @@ pub struct IvcCircuit {
     pub self_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
     pub prev_state: Value<F>,
     pub prev_msg: Value<F>,
+    pub prev_committed_index: Value<C>,
     pub prev_merkle_root: Value<F>,
     pub prev_next_merkle_root: Value<F>,
     pub prev_protocol_params: Value<F>,
@@ -69,6 +70,7 @@ pub struct IvcCircuit {
     pub cert_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
     pub cert_merkle_root: Value<F>,
     pub cert_msg: Value<F>,
+    pub cert_committed_index: Value<C>,
     pub cert_proof: Value<Vec<u8>>,
     // Protocol msg preimage bytes
     pub msg_preimage: Value<[u8; PREIMAGE_SIZE]>,
@@ -209,6 +211,15 @@ impl Circuit<F> for IvcCircuit {
             // this won't fail
             .unwrap();
 
+        let [prev_committed_index, cert_committed_index] = foreign_ecc_chip
+            .assign_many(
+                &mut layouter,
+                &[self.prev_committed_index, self.cert_committed_index],
+            )?
+            .try_into()
+            // this won't fail
+            .unwrap();
+
         // Assign and verify genesis certificate
         let genesis_msg: AssignedNative<_> =
             native_gadget.assign_as_public_input(&mut layouter, self.genesis_msg)?;
@@ -257,6 +268,16 @@ impl Circuit<F> for IvcCircuit {
 
         let is_genesis = native_gadget.is_zero(&mut layouter, &prev_state)?;
         let is_not_genesis = native_gadget.not(&mut layouter, &is_genesis)?;
+
+        {
+            let committed_index = foreign_ecc_chip.select(
+                &mut layouter,
+                &is_genesis,
+                &id_point,
+                &cert_committed_index,
+            )?;
+            foreign_ecc_chip.constrain_as_public_input(&mut layouter, &committed_index)?;
+        }
 
         {
             // Skip the genesis signature verification if it is not genesis
@@ -459,7 +480,7 @@ impl Circuit<F> for IvcCircuit {
             let mut cert_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_cert_vk,
-                &[("com_instance", id_point.clone())],
+                &[cert_committed_index],
                 &[&[cert_merkle_root.clone(), cert_msg.clone()]],
                 self.cert_proof.clone(),
             )?;
@@ -487,12 +508,11 @@ impl Circuit<F> for IvcCircuit {
             // Update accumulator
             // Witness a proof and an accumulator that ensure the validity of `prev_state`.
             let prev_acc = {
-                let mut fixed_base_names = vec![String::from("com_instance")];
-                fixed_base_names.extend(verifier::fixed_base_names::<S>(
+                let mut fixed_base_names = verifier::fixed_base_names::<S>(
                     IVC_ONE_NAME,
                     self_cs.num_fixed_columns() + self_cs.num_selectors(),
                     self_cs.permutation().columns.len(),
-                ));
+                );
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
                     CERT_VK_NAME,
                     cert_cs.num_fixed_columns() + cert_cs.num_selectors(),
@@ -521,6 +541,7 @@ impl Circuit<F> for IvcCircuit {
                     jubjub_chip.x_coordinate(&genesis_vk),
                     jubjub_chip.y_coordinate(&genesis_vk),
                 ],
+                foreign_ecc_chip.as_public_input(&mut layouter, &prev_committed_index)?,
                 vec![
                     prev_state,
                     prev_msg,
@@ -541,7 +562,7 @@ impl Circuit<F> for IvcCircuit {
             let mut self_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_self_vk,
-                &[("com_instance", id_point)],
+                &[id_point],
                 &[&assigned_pi],
                 self.prev_proof.clone(),
             )?;
@@ -577,24 +598,24 @@ impl Circuit<F> for IvcCircuit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::merkle_tree::{MTLeaf, MerklePath, MerkleTree};
-    use crate::protocol_message::{
-        AggregateVerificationKey, ProtocolMessage, ProtocolMessagePartKey,
-    };
-    use crate::utils::jubjub_base_from_le_bytes;
     use crate::{
-        AssignedNative, Bls12, CircuitTranscript, Instantiable, JubjubBase, KZGCommitmentScheme,
-        MerkleRoot, Msg, Msm, ParamsKZG, PoseidonState, Transcript, create_proof, keygen_pk,
-        keygen_vk_with_k, prepare,
+        AssignedNative, Bls12, CircuitTranscript, Instantiable, KZGCommitmentScheme, MerkleRoot,
+        Msg, Msm, ParamsKZG, PoseidonState, Relation, Transcript,
+        certificate::Certificate,
+        create_proof, keygen_pk, keygen_vk_with_k,
+        merkle_tree::{MTLeaf, MerklePath, MerkleTree},
+        prepare,
+        protocol_message::{AggregateVerificationKey, ProtocolMessage, ProtocolMessagePartKey},
         schnorr_signature::{
             Signature as SchnorrSignature, SigningKey as SchnorrSigningKey,
             VerificationKey as SchnorrVerificationKey,
         },
         unique_signature::{Signature, SigningKey, VerificationKey},
+        utils::jubjub_base_from_le_bytes,
     };
-    use crate::{Relation, certificate::Certificate};
     use ff::Field;
     use midnight_proofs::dev::cost_model::circuit_model;
+    use midnight_proofs::plonk::commit_to_instances;
     use midnight_proofs::utils::SerdeFormat;
     use midnight_zk_stdlib as zk;
     use rand_core::OsRng;
@@ -794,7 +815,7 @@ mod tests {
     }
 
     macro_rules! verify_prepare {
-        ($TranscriptType:ty, $proof:expr, $vk:expr, $public_inputs:expr) => {{
+        ($TranscriptType:ty, $proof:expr, $vk:expr, $committed_instance:expr, $public_inputs:expr) => {{
             // Start a transcript from proof bytes
             let mut transcript = CircuitTranscript::<$TranscriptType>::init_from_bytes($proof);
 
@@ -802,7 +823,7 @@ mod tests {
             let dual_msm =
                 prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<$TranscriptType>>(
                     $vk,
-                    &[&[C::identity()]],
+                    &[&[$committed_instance]],
                     &[&[$public_inputs]],
                     &mut transcript,
                 )
@@ -843,9 +864,7 @@ mod tests {
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("cert circuit vk pk generation took: {:?}", duration);
 
-        let mut cert_fixed_bases = BTreeMap::new();
-        cert_fixed_bases.insert(String::from("com_instance"), C::identity());
-        cert_fixed_bases.extend(verifier::fixed_bases::<S>(CERT_VK_NAME, &cert_vk.vk()));
+        let mut cert_fixed_bases = verifier::fixed_bases::<S>(CERT_VK_NAME, &cert_vk.vk());
         let cert_fixed_base_names = cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
 
         let cert_trivial_acc = Accumulator::<S>::new(
@@ -863,6 +882,7 @@ mod tests {
         let mut cert_proofs = vec![vec![]];
         // We don't need to use cert_trivial_acc
         let mut cert_accs = vec![cert_trivial_acc];
+        let mut cert_committed = vec![C::identity()];
         for i in 1..NUM_CERT {
             let start = Instant::now();
             let cert_proof = zk::prove::<Certificate, PoseidonState<F>>(
@@ -877,17 +897,33 @@ mod tests {
             let duration = start.elapsed(); // Measure the elapsed time after proof generation.
             println!("Inner circuit proof generation took: {:?}", duration);
 
-            let cert_dual_msm =
-                verify_prepare!(PoseidonState<F>, &cert_proof, cert_vk.vk(), &instances[i]);
+            let committed_index: C = {
+                let ci = Certificate::format_committed_instances(&witnesses[i]);
+                commit_to_instances::<_, KZGCommitmentScheme<_>>(
+                    &cert_srs,
+                    cert_vk.vk().get_domain(),
+                    &ci,
+                )
+                .into()
+            };
+
+            let cert_dual_msm = verify_prepare!(
+                PoseidonState<F>,
+                &cert_proof,
+                cert_vk.vk(),
+                committed_index,
+                &instances[i]
+            );
             assert!(cert_dual_msm.clone().check(&cert_srs.verifier_params()));
 
-            let mut cert_acc: Accumulator<S> = cert_dual_msm.into();
-            cert_acc.extract_fixed_bases(&cert_fixed_bases);
+            let mut cert_acc =
+                Accumulator::<S>::from_dual_msm(cert_dual_msm, CERT_VK_NAME, &cert_fixed_bases);
             assert!(cert_acc.check(&cert_srs.s_g2().into(), &cert_fixed_bases));
             cert_acc.collapse();
 
             cert_proofs.push(cert_proof);
             cert_accs.push(cert_acc);
+            cert_committed.push(committed_index);
         }
 
         // ivc circuit with cert vk
@@ -899,6 +935,7 @@ mod tests {
             self_vk: (self_domain.clone(), self_cs.clone(), Value::unknown()),
             prev_state: Value::known(F::ZERO),
             prev_msg: Value::unknown(),
+            prev_committed_index: Value::unknown(),
             prev_merkle_root: Value::unknown(),
             prev_next_merkle_root: Value::unknown(),
             prev_current_epoch: Value::unknown(),
@@ -917,6 +954,7 @@ mod tests {
             cert_merkle_root: Value::unknown(),
             cert_proof: Value::unknown(),
             cert_msg: Value::unknown(),
+            cert_committed_index: Value::unknown(),
             msg_preimage: Value::known(preimages[0].clone().try_into().unwrap()),
         };
 
@@ -938,17 +976,14 @@ mod tests {
             println!("ivc_with_cert vk length {:?}", buffer.get_ref().len());
         }
 
-        let mut self_fixed_bases = BTreeMap::new();
-        self_fixed_bases.insert(String::from("com_instance"), C::identity());
-        self_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_ONE_NAME, &self_vk));
+        let self_fixed_bases = verifier::fixed_bases::<S>(IVC_ONE_NAME, &self_vk);
         let self_fixed_base_names = self_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
             "IVC fixed base name length {:?}",
             self_fixed_base_names.len()
         );
 
-        let mut combined_fixed_bases = BTreeMap::new();
-        combined_fixed_bases.extend(cert_fixed_bases.clone());
+        let mut combined_fixed_bases = cert_fixed_bases.clone();
         combined_fixed_bases.extend(self_fixed_bases.clone());
         let combined_fixed_base_names = combined_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
@@ -971,6 +1006,7 @@ mod tests {
         // Set the previous values
         let mut prev_state = F::ZERO;
         let mut prev_msg = F::ZERO;
+        let mut prev_committed_index = C::identity();
         let mut prev_merkle_root = F::ZERO;
         let mut prev_next_merkle_root = F::ZERO;
         let mut prev_current_epoch = F::ZERO;
@@ -991,6 +1027,7 @@ mod tests {
                 ),
                 prev_state: Value::known(prev_state),
                 prev_msg: Value::known(prev_msg),
+                prev_committed_index: Value::known(prev_committed_index),
                 prev_merkle_root: Value::known(prev_merkle_root),
                 prev_next_merkle_root: Value::known(prev_next_merkle_root),
                 prev_current_epoch: Value::known(prev_current_epoch),
@@ -1008,6 +1045,7 @@ mod tests {
                 ),
                 cert_merkle_root: Value::known(merkle_roots[i]),
                 cert_msg: Value::known(msgs[i]),
+                cert_committed_index: Value::known(cert_committed[i]),
                 cert_proof: Value::known(cert_proofs[i].clone()),
                 msg_preimage: Value::known(preimages[i].clone().try_into().unwrap()),
             };
@@ -1016,6 +1054,7 @@ mod tests {
             let public_inputs = [
                 AssignedNative::<F>::as_public_input(&msgs[0]),
                 AssignedNativePoint::<Jubjub>::as_public_input(&genesis_vk.0),
+                AssignedForeignPoint::<F, C, C>::as_public_input(&cert_committed[i]),
                 AssignedNative::<F>::as_public_input(&state),
                 AssignedNative::<F>::as_public_input(&msgs[i]),
                 AssignedNative::<F>::as_public_input(&merkle_roots[i]),
@@ -1045,16 +1084,28 @@ mod tests {
             let proof_acc: Accumulator<S> = {
                 let start = Instant::now();
                 let dual_msm = if i < NUM_CERT - 1 {
-                    verify_prepare!(PoseidonState<F>, &proof, &self_vk, &public_inputs)
+                    verify_prepare!(
+                        PoseidonState<F>,
+                        &proof,
+                        &self_vk,
+                        C::identity(),
+                        &public_inputs
+                    )
                 } else {
-                    verify_prepare!(blake2b_simd::State, &proof, &self_vk, &public_inputs)
+                    verify_prepare!(
+                        blake2b_simd::State,
+                        &proof,
+                        &self_vk,
+                        C::identity(),
+                        &public_inputs
+                    )
                 };
                 assert!(dual_msm.clone().check(&srs.verifier_params()));
                 let duration = start.elapsed(); // Measure the elapsed time after proof generation.
                 println!("IVC proof verification took: {:?}", duration);
 
-                let mut proof_acc: Accumulator<S> = dual_msm.into();
-                proof_acc.extract_fixed_bases(&self_fixed_bases);
+                let mut proof_acc =
+                    Accumulator::<S>::from_dual_msm(dual_msm, IVC_ONE_NAME, &self_fixed_bases);
                 proof_acc.collapse();
                 proof_acc
             };
@@ -1062,6 +1113,7 @@ mod tests {
             // Prepare the witnesses of the next iteration.
             prev_state = state;
             prev_msg = msgs[i];
+            prev_committed_index = cert_committed[i];
             prev_merkle_root = merkle_roots[i];
             prev_next_merkle_root = next_merkle_roots[i];
             prev_current_epoch = current_epoch;
@@ -1099,6 +1151,7 @@ mod tests {
                 let public_inputs = [
                     AssignedNative::<F>::as_public_input(&msgs[0]),
                     AssignedNativePoint::<Jubjub>::as_public_input(&genesis_vk.0),
+                    AssignedForeignPoint::<F, C, C>::as_public_input(&prev_committed_index),
                     AssignedNative::<F>::as_public_input(&prev_state),
                     AssignedNative::<F>::as_public_input(&prev_msg),
                     AssignedNative::<F>::as_public_input(&prev_merkle_root),
@@ -1113,8 +1166,13 @@ mod tests {
                 .concat();
 
                 // todo: combine the pair checking
-                let dual_msm =
-                    verify_prepare!(blake2b_simd::State, &prev_proof, &self_vk, &public_inputs);
+                let dual_msm = verify_prepare!(
+                    blake2b_simd::State,
+                    &prev_proof,
+                    &self_vk,
+                    C::identity(),
+                    &public_inputs
+                );
                 assert!(dual_msm.clone().check(&srs.verifier_params()));
                 assert!(
                     prev_acc.check(&srs.s_g2().into(), &combined_fixed_bases),

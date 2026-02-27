@@ -14,7 +14,7 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-midnight-circuits = { version = "6.0.0" }
+midnight-circuits = { version = "6.0.0", features = ["testing"] }
 midnight-curves = { version = "0.2.0" }
 midnight-proofs = { version = "0.7.0" }
 midnight-zk-stdlib = { version = "1.0.0" }
@@ -43,3 +43,9 @@ harness = false
 [[bench]]
 name = "bls"
 harness = false
+
+[patch.crates-io]
+midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "036cb2704b84a2ae28e77659d8e96f9d46b9f9e1" }
+midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "036cb2704b84a2ae28e77659d8e96f9d46b9f9e1" }
+midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "036cb2704b84a2ae28e77659d8e96f9d46b9f9e1" }
+midnight-zk-stdlib = { git = "https://github.com/midnightntwrk/midnight-zk", rev = "036cb2704b84a2ae28e77659d8e96f9d46b9f9e1" }

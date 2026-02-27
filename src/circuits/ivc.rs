@@ -133,12 +133,11 @@ impl Circuit<F> for IvcCircuit {
 
         // Witness a proof and an accumulator that ensure the validity of `prev_state`.
         let prev_acc = {
-            let mut fixed_base_names = vec![String::from("com_instance")];
-            fixed_base_names.extend(verifier::fixed_base_names::<S>(
+            let fixed_base_names = verifier::fixed_base_names::<S>(
                 self_vk_name,
                 self_cs.num_fixed_columns() + self_cs.num_selectors(),
                 self_cs.permutation().columns.len(),
-            ));
+            );
             AssignedAccumulator::assign(
                 &mut layouter,
                 &curve_chip,
@@ -167,7 +166,7 @@ impl Circuit<F> for IvcCircuit {
         let mut proof_acc = verifier_chip.prepare(
             &mut layouter,
             &assigned_self_vk,
-            &[("com_instance", id_point)],
+            &[id_point],
             &[&assigned_pi],
             self.prev_proof.clone(),
         )?;
@@ -266,11 +265,8 @@ mod tests {
             println!("ivc_only vk length {:?}", buffer.get_ref().len());
         }
 
-        let mut fixed_bases = BTreeMap::new();
-        fixed_bases.insert(String::from("com_instance"), C::identity());
-        fixed_bases.extend(midnight_circuits::verifier::fixed_bases::<S>(
-            "self_vk", &vk,
-        ));
+        let self_vk_name = "self_vk";
+        let fixed_bases = verifier::fixed_bases::<S>(self_vk_name, &vk);
         let fixed_base_names = fixed_bases.keys().cloned().collect::<Vec<_>>();
 
         // This trivial accumulator must have a single base and scalar of F::ONE, and
@@ -360,8 +356,8 @@ mod tests {
                 let duration = start.elapsed(); // Measure the elapsed time after proof generation.
                 println!("\nIVC proof verification took: {:?}", duration);
 
-                let mut proof_acc: Accumulator<S> = dual_msm.into();
-                proof_acc.extract_fixed_bases(&fixed_bases);
+                let mut proof_acc =
+                    Accumulator::<S>::from_dual_msm(dual_msm, self_vk_name, &fixed_bases);
                 proof_acc.collapse();
                 proof_acc
             };
@@ -410,8 +406,8 @@ mod tests {
                         )
                         .expect("Verification failed");
 
-                    let mut proof_acc: Accumulator<S> = dual_msm.into();
-                    proof_acc.extract_fixed_bases(&fixed_bases);
+                    let mut proof_acc =
+                        Accumulator::<S>::from_dual_msm(dual_msm, self_vk_name, &fixed_bases);
                     proof_acc.collapse();
                     proof_acc
                 };
