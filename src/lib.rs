@@ -46,7 +46,7 @@ pub use midnight_circuits::{
         PublicInputInstructions, RangeCheckInstructions, ZeroInstructions, hash::HashCPU,
     },
     types::{
-        AssignedBit, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
+        AssignedBit, AssignedByte, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
         AssignedScalarOfNativeCurve, ComposableChip, Instantiable,
     },
     verifier::{
@@ -58,7 +58,10 @@ pub use midnight_circuits::{
 pub use midnight_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
     dev::cost_model::circuit_model,
-    plonk::{Circuit, ConstraintSystem, Error, create_proof, keygen_pk, keygen_vk_with_k, prepare},
+    plonk::{
+        Circuit, ConstraintSystem, Error, VerifyingKey, create_proof, keygen_pk, keygen_vk_with_k,
+        prepare,
+    },
     poly::kzg::params::ParamsKZG,
     poly::{EvaluationDomain, kzg::KZGCommitmentScheme},
     transcript::{CircuitTranscript, Transcript},
