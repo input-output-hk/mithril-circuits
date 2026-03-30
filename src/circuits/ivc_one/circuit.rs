@@ -4,7 +4,8 @@ use crate::{
     Value, VerifyingKey,
     ivc_one::{
         E, F, K, S,
-        gadget::{IvcConfig, IvcGadget, configure_ivc_circuit},
+        config::{IvcConfig, configure_ivc_circuit},
+        gadget::IvcGadget,
         state::{Global, State, Witness},
     },
 };

@@ -20,6 +20,7 @@ const K: u32 = 19;
 pub const PREIMAGE_SIZE: usize = 190;
 
 pub mod circuit;
+pub mod config;
 pub mod gadget;
 pub mod io;
 pub mod state;
@@ -30,7 +31,6 @@ mod tests {
     use crate::{
         Accumulator, AssignedAccumulator, Bls12, CERT_VK_NAME, CircuitTranscript, IVC_ONE_NAME,
         Instantiable, KZGCommitmentScheme, ParamsKZG, PoseidonState, Relation, Transcript,
-        VerifyingKey,
         certificate::Certificate,
         circuit_model, create_proof,
         ivc_one::{
