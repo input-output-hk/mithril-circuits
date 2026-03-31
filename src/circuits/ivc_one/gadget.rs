@@ -1,12 +1,12 @@
 use crate::{
     Accumulator, ArithInstructions, AssertionInstructions, AssignedAccumulator, AssignedBit,
-    AssignedForeignPoint, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
-    AssignedVk, AssignmentInstructions, BinaryInstructions, CERT_VK_NAME, CircuitCurve,
-    ComposableChip, ConstraintSystem, ControlFlowInstructions, ConversionInstructions,
-    DST_SCHNORR_SIGNATURE, EccChip, EccInstructions, EqualityInstructions, Error, EvaluationDomain,
-    ForeignEccChip, HashInstructions, IVC_ONE_NAME, Jubjub, Layouter, NativeChip, NativeGadget,
-    P2RDecompositionChip, PoseidonChip, PublicInputInstructions, Value, VerifierGadget,
-    ZeroInstructions,
+    AssignedByte, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
+    AssignedScalarOfNativeCurve, AssignedVk, AssignmentInstructions, BinaryInstructions,
+    CERT_VK_NAME, CircuitCurve, ComposableChip, ConstraintSystem, ControlFlowInstructions,
+    ConversionInstructions, DST_SCHNORR_SIGNATURE, EccChip, EccInstructions, EqualityInstructions,
+    Error, EvaluationDomain, ForeignEccChip, HashInstructions, IVC_ONE_NAME, Jubjub, Layouter,
+    NativeChip, NativeGadget, P2RDecompositionChip, PoseidonChip, PublicInputInstructions, Value,
+    VerifierGadget, ZeroInstructions,
     ivc_one::{
         C, F, K, NG, S,
         config::IvcConfig,
@@ -366,26 +366,26 @@ impl IvcGadget {
         let next_protocol_params_bytes = witness.msg_preimage[137..169].to_vec();
         let current_epoch_bytes = witness.msg_preimage[182..190].to_vec();
 
-        let next_merkle_root = {
-            let mut items = vec![];
-            for (v, base) in next_merkle_root_bytes.into_iter().zip(bases.iter()) {
-                items.push((*base, v.into()));
-            }
-            let next_merkle_root =
+        // Get the field elements by linearly combing the bytes
+        let (next_merkle_root, next_protocol_params, current_epoch) = {
+            let mut combine = |bytes: Vec<AssignedByte<F>>| {
+                let items: Vec<_> = bytes
+                    .into_iter()
+                    .zip(bases.iter())
+                    .map(|(v, base)| (*base, v.into()))
+                    .collect();
+
                 self.native_gadget
-                    .linear_combination(layouter, &items, F::ZERO)?;
-            next_merkle_root
+                    .linear_combination(layouter, &items, F::ZERO)
+            };
+
+            let next_merkle_root = combine(next_merkle_root_bytes)?;
+            let next_protocol_params = combine(next_protocol_params_bytes)?;
+            let current_epoch = combine(current_epoch_bytes)?;
+            (next_merkle_root, next_protocol_params, current_epoch)
         };
 
-        let (is_same_epoch, is_next_epoch, current_epoch) = {
-            let mut items = vec![];
-            for (v, base) in current_epoch_bytes.into_iter().zip(bases.iter()) {
-                items.push((*base, v.into()));
-            }
-            let current_epoch = self
-                .native_gadget
-                .linear_combination(layouter, &items, F::ZERO)?;
-
+        let (is_same_epoch, is_next_epoch) = {
             // current_epoch == state.current_epoch
             let is_same_epoch =
                 self.native_gadget
@@ -416,7 +416,7 @@ impl IvcGadget {
                     .assert_equal_to_fixed(layouter, &is_valid, true)?;
             }
 
-            (is_same_epoch, is_next_epoch, current_epoch)
+            (is_same_epoch, is_next_epoch)
         };
 
         {
@@ -444,25 +444,6 @@ impl IvcGadget {
                 .assert_equal_to_fixed(layouter, &is_link_valid, true)?;
         }
 
-        {
-            // Check the consistence on next_merkle_root for certificates of the same epoch
-            // Assert true: is_genesis or (is_same_epoch && next_merkle_root == state.next_merkle_root) or is_next_epoch
-            let mut is_valid = self.native_gadget.is_equal(
-                layouter,
-                &next_merkle_root,
-                &state.next_merkle_root,
-            )?;
-            is_valid = self
-                .native_gadget
-                .and(layouter, &[is_valid, is_same_epoch.clone()])?;
-            is_valid = self.native_gadget.or(
-                layouter,
-                &[is_genesis.clone(), is_valid, is_next_epoch.clone()],
-            )?;
-            self.native_gadget
-                .assert_equal_to_fixed(layouter, &is_valid, true)?;
-        }
-
         let protocol_params = {
             // If genesis: protocol_params = 0
             // Else:
@@ -486,33 +467,27 @@ impl IvcGadget {
             protocol_params
         };
 
-        let next_protocol_params = {
-            // Get the value of next protocol parameters
-            let mut items = vec![];
-            for (v, base) in next_protocol_params_bytes.into_iter().zip(bases.iter()) {
-                items.push((*base, v.into()));
-            }
-            let next_protocol_params =
-                self.native_gadget
-                    .linear_combination(layouter, &items, F::ZERO)?;
-
-            // Check the consistence on next_protocol_params for certificates of the same epoch
-            // Assert true: is_genesis or (is_same_epoch && next_protocol_params == state.next_protocol_params) or is_next_epoch
-            let mut is_valid = self.native_gadget.is_equal(
+        {
+            // Check the consistence on next_merkle_root and next_protocol_params for certificates of the same epoch
+            // Assert true: is_genesis or (is_same_epoch && next_merkle_root == state.next_merkle_root && next_protocol_params == state.next_protocol_params) or is_next_epoch
+            let is_equal_mt = self.native_gadget.is_equal(
+                layouter,
+                &next_merkle_root,
+                &state.next_merkle_root,
+            )?;
+            let is_equal_pp = self.native_gadget.is_equal(
                 layouter,
                 &next_protocol_params,
                 &state.next_protocol_params,
             )?;
-            is_valid = self
+            let mut is_valid = self
                 .native_gadget
-                .and(layouter, &[is_valid, is_same_epoch])?;
+                .and(layouter, &[is_same_epoch, is_equal_mt, is_equal_pp])?;
             is_valid = self
                 .native_gadget
                 .or(layouter, &[is_genesis.clone(), is_valid, is_next_epoch])?;
             self.native_gadget
                 .assert_equal_to_fixed(layouter, &is_valid, true)?;
-
-            next_protocol_params
         };
 
         // Return the next state
