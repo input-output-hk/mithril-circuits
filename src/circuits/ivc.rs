@@ -8,6 +8,7 @@ use crate::{
     ZeroInstructions, nb_foreign_ecc_chip_columns, verifier,
 };
 use halo2curves::{ff::Field, group::Group};
+use rand_core::OsRng;
 
 type S = BlstrsEmulation;
 type F = <S as SelfEmulation>::F;
@@ -110,7 +111,7 @@ impl Circuit<F> for IvcCircuit {
         let native_chip = <NativeChip<F> as ComposableChip<F>>::new(&config.0, &());
         let core_decomp_chip = P2RDecompositionChip::new(&config.1, &(K as usize - 1));
         let scalar_chip = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
-        let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip) };
+        let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip, OsRng) };
         let poseidon_chip = PoseidonChip::new(&config.3, &native_chip);
 
         let verifier_chip = VerifierGadget::new(&curve_chip, &scalar_chip, &poseidon_chip);

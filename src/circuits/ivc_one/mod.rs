@@ -295,6 +295,7 @@ mod tests {
         let k_max = K.max(K_INNER);
         //let srs = filecoin_srs(K);
         let srs = open(k_max);
+        let srs_verifier = srs.verifier_params();
 
         let ivc_srs = {
             let mut ivc_srs = srs.clone();
@@ -365,11 +366,11 @@ mod tests {
                 cert_vk.vk(),
                 &cert_instances[i]
             );
-            assert!(cert_dual_msm.clone().check(&cert_srs.verifier_params()));
+            assert!(cert_dual_msm.clone().check(&srs_verifier));
             // Convert dual_msm into accumulator
             let mut cert_acc: Accumulator<S> = cert_dual_msm.into();
             cert_acc.extract_fixed_bases(&cert_fixed_bases);
-            assert!(cert_acc.check(&cert_srs.s_g2().into(), &cert_fixed_bases));
+            assert!(cert_acc.check(&srs_verifier.s_g2().into(), &cert_fixed_bases));
             cert_acc.collapse();
 
             cert_proofs.push(cert_proof);
@@ -474,7 +475,7 @@ mod tests {
                 } else {
                     verify_prepare!(blake2b_simd::State, &proof, &self_vk, &public_inputs)
                 };
-                assert!(dual_msm.clone().check(&ivc_srs.verifier_params()));
+                assert!(dual_msm.clone().check(&srs_verifier));
                 let duration = start.elapsed(); // Measure the elapsed time after proof generation.
                 println!("IVC proof verification took: {:?}", duration);
 
@@ -500,7 +501,7 @@ mod tests {
                 accumulated.collapse();
 
                 assert!(
-                    accumulated.check(&srs.s_g2().into(), &combined_fixed_bases),
+                    accumulated.check(&srs_verifier.s_g2().into(), &combined_fixed_bases),
                     "IVC acc verification failed"
                 );
 
@@ -532,9 +533,9 @@ mod tests {
                 // the current separate verification is faster
                 let dual_msm =
                     verify_prepare!(blake2b_simd::State, &self_proof, &self_vk, &public_inputs);
-                assert!(dual_msm.clone().check(&srs.verifier_params()));
+                assert!(dual_msm.clone().check(&srs_verifier));
                 assert!(
-                    acc.check(&srs.s_g2().into(), &combined_fixed_bases),
+                    acc.check(&srs_verifier.s_g2().into(), &combined_fixed_bases),
                     "IVC acc verification failed"
                 );
             }

@@ -20,6 +20,7 @@ use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
     NB_SHA256_ADVICE_COLS, NB_SHA256_FIXED_COLS, Sha256Chip, Sha256Config,
 };
+use rand_core::OsRng;
 use std::collections::HashSet;
 
 type S = BlstrsEmulation;
@@ -168,8 +169,14 @@ impl Circuit<F> for IvcCircuit {
             P2RDecompositionChip::new(&config.core_decomp_config, &(K as usize - 1));
         let native_gadget = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
         let jubjub_chip = EccChip::<Jubjub>::new(&config.jubjub_config, &native_gadget);
-        let foreign_ecc_chip: ForeignEccChip<_, C, C, _, _> =
-            { ForeignEccChip::new(&config.foreign_ecc_config, &native_gadget, &native_gadget) };
+        let foreign_ecc_chip: ForeignEccChip<_, C, C, _, _> = {
+            ForeignEccChip::new(
+                &config.foreign_ecc_config,
+                &native_gadget,
+                &native_gadget,
+                OsRng,
+            )
+        };
         let poseidon_chip = PoseidonChip::new(&config.poseidon_config, &native_chip);
         let sha256_chip = Sha256Chip::new(&config.sha256_config, &native_gadget);
         let verifier_chip: VerifierGadget<S> =
