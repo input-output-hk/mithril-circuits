@@ -1,12 +1,12 @@
 use crate::{
     Accumulator, ArithInstructions, AssertionInstructions, AssignedAccumulator, AssignedBit,
-    AssignedByte, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
-    AssignedScalarOfNativeCurve, AssignedVk, AssignmentInstructions, BinaryInstructions,
-    CERT_VK_NAME, CircuitCurve, ComposableChip, ConstraintSystem, ControlFlowInstructions,
-    ConversionInstructions, DST_SCHNORR_SIGNATURE, EccChip, EccInstructions, EqualityInstructions,
-    Error, EvaluationDomain, ForeignEccChip, HashInstructions, IVC_ONE_NAME, Jubjub, Layouter,
-    NativeChip, NativeGadget, P2RDecompositionChip, PoseidonChip, PublicInputInstructions, Value,
-    VerifierGadget, ZeroInstructions,
+    AssignedForeignPoint, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
+    AssignedVk, AssignmentInstructions, BinaryInstructions, CERT_VK_NAME, CircuitCurve,
+    ComposableChip, ConstraintSystem, ControlFlowInstructions, ConversionInstructions,
+    DST_SCHNORR_SIGNATURE, EccChip, EccInstructions, EqualityInstructions, Error, EvaluationDomain,
+    ForeignEccChip, HashInstructions, IVC_ONE_NAME, Jubjub, Layouter, NativeChip, NativeGadget,
+    P2RDecompositionChip, PoseidonChip, PublicInputInstructions, Value, VerifierGadget,
+    ZeroInstructions,
     ivc_one::{
         C, F, K, NG, S,
         config::IvcConfig,
@@ -307,6 +307,22 @@ impl IvcGadget {
         Ok(pi)
     }
 
+    fn combine_bytes(
+        &self,
+        layouter: &mut impl Layouter<F>,
+        bytes: impl IntoIterator<Item = impl Into<AssignedNative<F>>>,
+        bases: &[F],
+    ) -> Result<AssignedNative<F>, Error> {
+        let items: Vec<_> = bytes
+            .into_iter()
+            .zip(bases.iter())
+            .map(|(v, base)| (*base, v.into()))
+            .collect();
+
+        self.native_gadget
+            .linear_combination(layouter, &items, F::ZERO)
+    }
+
     pub fn transition(
         &self,
         layouter: &mut impl Layouter<F>,
@@ -342,13 +358,7 @@ impl IvcGadget {
 
         {
             // Compare msg and hash
-            let mut items = vec![];
-            for (v, base) in hash.into_iter().zip(bases.iter()) {
-                items.push((*base, v.into()));
-            }
-            let hash_native = self
-                .native_gadget
-                .linear_combination(layouter, &items, F::ZERO)?;
+            let hash_native = self.combine_bytes(layouter, &hash, &bases)?;
             self.native_gadget
                 .assert_equal(layouter, &msg, &hash_native)?;
         }
@@ -366,22 +376,12 @@ impl IvcGadget {
         let next_protocol_params_bytes = witness.msg_preimage[137..169].to_vec();
         let current_epoch_bytes = witness.msg_preimage[182..190].to_vec();
 
-        // Get the field elements by linearly combing the bytes
+        // Get the field elements by linearly combining the bytes
         let (next_merkle_root, next_protocol_params, current_epoch) = {
-            let mut combine = |bytes: Vec<AssignedByte<F>>| {
-                let items: Vec<_> = bytes
-                    .into_iter()
-                    .zip(bases.iter())
-                    .map(|(v, base)| (*base, v.into()))
-                    .collect();
-
-                self.native_gadget
-                    .linear_combination(layouter, &items, F::ZERO)
-            };
-
-            let next_merkle_root = combine(next_merkle_root_bytes)?;
-            let next_protocol_params = combine(next_protocol_params_bytes)?;
-            let current_epoch = combine(current_epoch_bytes)?;
+            let next_merkle_root = self.combine_bytes(layouter, next_merkle_root_bytes, &bases)?;
+            let next_protocol_params =
+                self.combine_bytes(layouter, next_protocol_params_bytes, &bases)?;
+            let current_epoch = self.combine_bytes(layouter, current_epoch_bytes, &bases)?;
             (next_merkle_root, next_protocol_params, current_epoch)
         };
 
@@ -399,25 +399,25 @@ impl IvcGadget {
                 .native_gadget
                 .is_equal(layouter, &current_epoch, &next)?;
 
-            {
-                // If state.counter == 1, the previous certificate is a genesis certificate and
-                // the current certificate is the first certificate after the genesis and
-                // its epoch number must be the next epoch number.
-                let is_first =
-                    self.native_gadget
-                        .is_equal_to_fixed(layouter, &state.counter, F::ONE)?;
-                let is_not_first = self.native_gadget.not(layouter, &is_first)?;
-
-                let mut is_valid = self
-                    .native_gadget
-                    .and(layouter, &[is_first, is_next_epoch.clone()])?;
-                is_valid = self.native_gadget.or(layouter, &[is_not_first, is_valid])?;
-                self.native_gadget
-                    .assert_equal_to_fixed(layouter, &is_valid, true)?;
-            }
-
             (is_same_epoch, is_next_epoch)
         };
+
+        {
+            // If state.counter == 1, the previous certificate is a genesis certificate and
+            // the current certificate is the first certificate after the genesis and
+            // its epoch number must be the next epoch number.
+            // Assert true: is_not_first or is_next_epoch
+            let is_first =
+                self.native_gadget
+                    .is_equal_to_fixed(layouter, &state.counter, F::ONE)?;
+            let is_not_first = self.native_gadget.not(layouter, &is_first)?;
+
+            let is_valid = self
+                .native_gadget
+                .or(layouter, &[is_not_first, is_next_epoch.clone()])?;
+            self.native_gadget
+                .assert_equal_to_fixed(layouter, &is_valid, true)?;
+        }
 
         {
             // Check the link on the current merkle root; if it is genesis, skip the checking
