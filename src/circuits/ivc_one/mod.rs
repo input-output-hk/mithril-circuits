@@ -26,6 +26,9 @@ pub mod io;
 pub mod state;
 
 #[cfg(test)]
+mod test_timings;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
