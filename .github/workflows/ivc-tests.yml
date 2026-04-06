@@ -2,7 +2,7 @@ name: IVC CI Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, curiecrypt/ivc-test-mode]
   pull_request:
 
 jobs:
