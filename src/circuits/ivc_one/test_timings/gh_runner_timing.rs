@@ -340,6 +340,61 @@ fn ci_tier_timings() {
     );
 
     println!("========================================");
+    println!("  CI-TIER TIMING: end-to-end verification");
+    println!("========================================\n");
+
+    let proto_file = File::open(protocol_data_path()).expect("protocol_data.bin not found");
+    let mut r = BufReader::new(proto_file);
+    let global_fes: Vec<JubjubBase> = (0..5).map(|_| read_fe(&mut r)).collect();
+    let stored_vk = VerifyingKey::<JubjubBase, KZGCommitmentScheme<Bls12>>::read::<_, IvcCircuit>(
+        &mut r,
+        SerdeFormat::RawBytesUnchecked,
+        (),
+    )
+    .expect("failed to read stored self_vk");
+    let combined_fixed_bases = read_combined_fixed_bases(&mut r);
+    let (self_fixed_bases, _) = fixed_bases_and_names(IVC_ONE_NAME, &stored_vk);
+
+    let aggr_file = File::open(aggr_result_path()).expect("aggr_result.bin not found");
+    let mut r = BufReader::new(aggr_file);
+    let stored_proof = read_proof(&mut r);
+    let stored_acc = Accumulator::<BlstrsEmulation>::read(&mut r, SerdeFormat::RawBytesUnchecked)
+        .expect("failed to read stored accumulator");
+    let stored_next_state = read_state(&mut r);
+
+    let verifier_pi = [
+        global_fes.as_slice(),
+        &stored_next_state.as_public_input(),
+        &AssignedAccumulator::as_public_input(&stored_acc),
+    ]
+    .concat();
+
+    println!("[*] Verifying stored Blake2b IVC proof...");
+    let t = Instant::now();
+    let _proof_acc = verify_ivc_blake2(
+        &ivc_srs,
+        &stored_vk,
+        &self_fixed_bases,
+        &stored_proof,
+        &verifier_pi,
+    );
+    println!(
+        "[+] verify_ivc_blake2:    {:.3}s\n",
+        t.elapsed().as_secs_f64()
+    );
+
+    println!("[*] Checking stored accumulator against combined fixed bases...");
+    let t = Instant::now();
+    assert!(
+        stored_acc.check(&srs.s_g2().into(), &combined_fixed_bases),
+        "stored accumulator check failed"
+    );
+    println!(
+        "[+] acc_check:            {:.3}s\n",
+        t.elapsed().as_secs_f64()
+    );
+
+    println!("========================================");
     println!("  CI-TIER TIMING: complete");
     println!("========================================");
 }
@@ -442,7 +497,7 @@ fn slow_tier_timings() {
 
     println!("[*] Generating Blake2b IVC proof (K={})...", K);
     let t = Instant::now();
-    let _final_proof = prove_ivc_blake2(&ivc_srs, &self_pk, &circuit, &public_inputs);
+    let final_proof = prove_ivc_blake2(&ivc_srs, &self_pk, &circuit, &public_inputs);
     println!(
         "[+] prove_ivc_blake2:     {:.3}s\n",
         t.elapsed().as_secs_f64()
@@ -452,41 +507,14 @@ fn slow_tier_timings() {
     println!("  SLOW-TIER TIMING: verifier");
     println!("========================================\n");
 
-    // Verifier setup: load stored protocol data and aggregator result
-    let proto_file = File::open(protocol_data_path()).expect("protocol_data.bin not found");
-    let mut r = BufReader::new(proto_file);
-    let global_fes: Vec<JubjubBase> = (0..5).map(|_| read_fe(&mut r)).collect();
-    let self_vk = VerifyingKey::<JubjubBase, KZGCommitmentScheme<Bls12>>::read::<_, IvcCircuit>(
-        &mut r,
-        SerdeFormat::RawBytesUnchecked,
-        (),
-    )
-    .expect("failed to read self_vk");
-    let combined_fixed_bases = read_combined_fixed_bases(&mut r);
-    let (self_fixed_bases, _) = fixed_bases_and_names(IVC_ONE_NAME, &self_vk);
-
-    let aggr_file = File::open(aggr_result_path()).expect("aggr_result.bin not found");
-    let mut r = BufReader::new(aggr_file);
-    let final_proof = read_proof(&mut r);
-    let next_acc_v = Accumulator::<BlstrsEmulation>::read(&mut r, SerdeFormat::RawBytesUnchecked)
-        .expect("failed to read next_acc");
-    let ivc_next_state = read_state(&mut r);
-
-    let verifier_pi = [
-        global_fes.as_slice(),
-        &ivc_next_state.as_public_input(),
-        &AssignedAccumulator::as_public_input(&next_acc_v),
-    ]
-    .concat();
-
     println!("[*] Verifying Blake2b IVC proof...");
     let t = Instant::now();
     let _proof_acc = verify_ivc_blake2(
         &ivc_srs,
-        &self_vk,
-        &self_fixed_bases,
+        &keys.self_vk,
+        &keys.self_fixed_bases,
         &final_proof,
-        &verifier_pi,
+        &public_inputs,
     );
     println!(
         "[+] verify_ivc_blake2:    {:.3}s\n",
@@ -496,7 +524,7 @@ fn slow_tier_timings() {
     println!("[*] Checking accumulator against combined fixed bases...");
     let t = Instant::now();
     assert!(
-        next_acc_v.check(&srs.s_g2().into(), &combined_fixed_bases),
+        next_acc.check(&srs.s_g2().into(), &keys.combined_fixed_bases),
         "next_acc check failed"
     );
     println!(
