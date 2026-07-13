@@ -40,9 +40,7 @@ costs one SNARK verification plus one accumulator decider check, independent of 
 
 ## 2. Cryptographic foundation
 
-Everything is built on the [**midnight-zk**](https://github.com/midnightntwrk/midnight-zk) stack
-(`midnight-circuits`, `midnight-proofs`, `midnight-curves`, `midnight-zk-stdlib`) — a halo2/KZG
-proving system over **BLS12-381**.
+Built on the [**midnight-zk**](https://github.com/midnightntwrk/midnight-zk) stack — a halo2/KZG proving system over **BLS12-381**.
 
 | Concept                 | Type / value                                            | Notes                                                          |
 | ----------------------- | ------------------------------------------------------- | -------------------------------------------------------------- |

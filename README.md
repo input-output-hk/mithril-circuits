@@ -81,11 +81,6 @@ in the main Mithril repository under
   verifier checks only the latest IVC proof plus one accumulator decider check — a cost
   independent of how many epochs the chain spans.
 
-## Built on
-
-The [**midnight-zk**](https://github.com/midnightntwrk/midnight-zk) stack — a halo2/KZG proving system over
-**BLS12-381**.
-
 ## Repository layout
 
 ```
