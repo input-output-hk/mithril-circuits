@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+title: >-
+  Mithril snarkification — a SNARK-friendly variant of the
+  Mithril multi-signature protocol
+message: >-
+  If you use this software or the design it proposes, please
+  cite it using the metadata from this file.
+type: software
+authors:
+  - given-names: Jia
+    family-names: Liu
+    affiliation: Input Output Global
+  - given-names: Raphael
+    family-names: Toledo
+    affiliation: Input Output Global
+repository-code: 'https://github.com/input-output-hk/mithril-circuits'
+abstract: >-
+  A research prototype that proposes and implements a
+  SNARK-friendly redesign of the Mithril stake-based
+  multi-signature protocol (Cardano), together with a
+  recursive (IVC) proof system that folds an unbounded chain
+  of certificates across epochs into a constant-size proof
+  plus a KZG accumulator.
+keywords:
+  - Mithril
+  - Cardano
+  - zero-knowledge proofs
+  - SNARK
+  - PLONK
+  - incrementally verifiable computation
+  - multi-signature
+license: Apache-2.0
+version: 0.1.0
+date-released: '2026-04-01'
