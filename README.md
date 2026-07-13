@@ -4,9 +4,12 @@
 
 > ### ⚠️ Important Disclaimer & Acceptance of Risk
 >
-> **This repository contains prototype implementations.** This code is provided "as is" for research and educational purposes
-> only. It has not been thoroughly tested and audited and is not intended for production use. By using this code, you
-> acknowledge and accept all associated risks, and our company disclaims any liability for damages or losses.
+> This is a proof-of-concept implementation that has not undergone security auditing. This code is
+> provided "as is" for research and educational purposes only. It has not been subjected to a formal
+> security review or audit and may contain vulnerabilities. **Do not use this code in production
+> systems, or in any environment where security is critical, without conducting your own thorough
+> security assessment.** By using this code, you acknowledge and accept all associated risks, and our
+> company disclaims any liability for damages or losses.
 
 ## Overview
 
@@ -129,6 +132,17 @@ cargo test  --release <substring> -- --nocapture     # e.g. certificate_small, t
 ## Further reading
 
 - [`DESIGN.md`](./DESIGN.md) — full architecture and cryptographic design.
+
+## License
+
+Copyright 2025 Input Output Global
+
+Licensed under the Apache License, Version 2.0 (the "License"). You may not use this repository except in compliance
+with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific
+language governing permissions and limitations under the License
 
 ## Citation
 
