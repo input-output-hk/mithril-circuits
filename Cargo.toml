@@ -21,7 +21,7 @@ midnight-zk-stdlib = { version = "1.1.0" }
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"
-rug = { version = "1.27.0" }
+dashu = "0.4"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 sha2 = "0.10.9"
 

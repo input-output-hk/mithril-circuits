@@ -1,7 +1,13 @@
 use crate::{
     DST_ALBA_BIN, DST_ALBA_FINAL, DST_ALBA_ROUND, HashCPU, JubjubBase, LotteryIndex, PoseidonHash,
 };
-use rug::{Float, Integer};
+use dashu::{
+    float::{FBig, round::mode::HalfEven},
+    integer::UBig,
+};
+
+/// Binary arbitrary-precision float rounding to nearest (ties to even), like MPFR's default.
+type BigFloat = FBig<HalfEven, 2>;
 
 type F = JubjubBase;
 
@@ -46,11 +52,13 @@ pub fn target(q: f64) -> u128 {
     debug_assert!(q >= 0.0);
     debug_assert!(q <= 1.0);
 
-    let max = Integer::from(u128::MAX);
-    let q = Float::with_val(200, q);
+    // The product has at most 128 + 53 significant bits, so it is exact at 200 bits
+    // of precision and truncation is exact.
+    let max = BigFloat::from(u128::MAX).with_precision(200).value();
+    let q = BigFloat::try_from(q).unwrap().with_precision(200).value();
     let t = max * q;
-    let (target, _) = t.to_integer_round(rug::float::Round::Zero).unwrap();
-    target.to_u128().unwrap()
+    let target: UBig = t.trunc().to_int().value().try_into().unwrap();
+    target.try_into().unwrap()
 }
 
 pub fn sample_bernoulli_with_target(hash: &F, target: u128) -> bool {
@@ -348,6 +356,19 @@ impl Proof {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reference targets computed by the original rug/MPFR implementation;
+    /// the dashu-based implementation must reproduce them bit-for-bit.
+    #[test]
+    fn test_target_mpfr_reference_vectors() {
+        assert_eq!(target(0.5), 170141183460469231731687303715884105727);
+        assert_eq!(
+            target(0.6180339887498949),
+            210306068529402891650266558847000772607
+        );
+        assert_eq!(target(1.0), 340282366920938463463374607431768211455);
+        assert_eq!(target(0.0), 0);
+    }
 
     #[test]
     fn test_alba_proof() {
