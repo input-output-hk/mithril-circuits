@@ -129,9 +129,6 @@ cargo build --release
 cargo test  --release <substring> -- --nocapture     # e.g. certificate_small, test_ivc_one
 ```
 
-## Further reading
-
-- [`DESIGN.md`](./DESIGN.md) — full architecture and cryptographic design.
 
 ## License
 
