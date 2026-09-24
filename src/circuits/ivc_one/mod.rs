@@ -255,8 +255,8 @@ mod tests {
                 &[$circuit.clone()],
                 1,
                 &[&[&[], $public_inputs]],
-                OsRng,
                 &mut transcript,
+                OsRng,
             );
 
             // Handle error
@@ -368,9 +368,9 @@ mod tests {
             );
             assert!(cert_dual_msm.clone().check(&srs_verifier));
             // Convert dual_msm into accumulator
-            let mut cert_acc: Accumulator<S> = cert_dual_msm.into();
-            cert_acc.extract_fixed_bases(&cert_fixed_bases);
-            assert!(cert_acc.check(&srs_verifier.s_g2().into(), &cert_fixed_bases));
+            let mut cert_acc =
+                Accumulator::<S>::from_dual_msm(cert_dual_msm, CERT_VK_NAME, &cert_fixed_bases);
+            assert!(cert_acc.check(&srs_verifier, &cert_fixed_bases));
             cert_acc.collapse();
 
             cert_proofs.push(cert_proof);
@@ -480,8 +480,8 @@ mod tests {
                 println!("IVC proof verification took: {:?}", duration);
 
                 // Convert dual_msm into an accumulator
-                let mut proof_acc: Accumulator<S> = dual_msm.into();
-                proof_acc.extract_fixed_bases(&self_fixed_bases);
+                let mut proof_acc =
+                    Accumulator::<S>::from_dual_msm(dual_msm, IVC_ONE_NAME, &self_fixed_bases);
                 proof_acc.collapse();
                 proof_acc
             };
@@ -501,7 +501,7 @@ mod tests {
                 accumulated.collapse();
 
                 assert!(
-                    accumulated.check(&srs_verifier.s_g2().into(), &combined_fixed_bases),
+                    accumulated.check(&srs_verifier, &combined_fixed_bases),
                     "IVC acc verification failed"
                 );
 
@@ -535,7 +535,7 @@ mod tests {
                     verify_prepare!(blake2b_simd::State, &self_proof, &self_vk, &public_inputs);
                 assert!(dual_msm.clone().check(&srs_verifier));
                 assert!(
-                    acc.check(&srs_verifier.s_g2().into(), &combined_fixed_bases),
+                    acc.check(&srs_verifier, &combined_fixed_bases),
                     "IVC acc verification failed"
                 );
             }

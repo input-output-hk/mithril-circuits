@@ -14,10 +14,10 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-midnight-circuits = { version = "6.1.0" }
-midnight-curves = { version = "0.2.0" }
-midnight-proofs = { version = "0.7.1" }
-midnight-zk-stdlib = { version = "1.1.0" }
+midnight-circuits = { version = "7.2.4" }
+midnight-curves = { version = "0.3.1" }
+midnight-proofs = { version = "0.8.2" }
+midnight-zk-stdlib = { version = "2.3.3" }
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"

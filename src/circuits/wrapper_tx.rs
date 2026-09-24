@@ -16,7 +16,6 @@ use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
     NB_SHA256_ADVICE_COLS, NB_SHA256_FIXED_COLS, Sha256Chip, Sha256Config,
 };
-use rand_core::OsRng;
 use std::collections::HashSet;
 
 type S = BlstrsEmulation;
@@ -105,9 +104,15 @@ pub fn configure_wrapper_circuit(meta: &mut ConstraintSystem<F>) -> WrapperConfi
         let pow2_config = Pow2RangeChip::configure(meta, &advice_columns[1..NB_ARITH_COLS]);
         P2RDecompositionChip::configure(meta, &(native_config.clone(), pow2_config))
     };
-    let base_config = FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns);
-    let foreign_ecc_config =
-        ForeignEccChip::<F, C, C, NG, NG>::configure(meta, &base_config, &advice_columns);
+    let base_config =
+        FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns, NB_ARITH_COLS - 1, K - 1);
+    let foreign_ecc_config = ForeignEccChip::<F, C, C, NG, NG>::configure(
+        meta,
+        &base_config,
+        &advice_columns,
+        NB_ARITH_COLS - 1,
+        K - 1,
+    );
 
     let poseidon_config = PoseidonChip::configure(
         meta,
@@ -158,14 +163,8 @@ impl Circuit<F> for WrapperCircuit {
         let core_decomp_chip =
             P2RDecompositionChip::new(&config.core_decomp_config, &(K as usize - 1));
         let native_gadget = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
-        let foreign_ecc_chip: ForeignEccChip<_, C, C, _, _> = {
-            ForeignEccChip::new(
-                &config.foreign_ecc_config,
-                &native_gadget,
-                &native_gadget,
-                OsRng,
-            )
-        };
+        let foreign_ecc_chip: ForeignEccChip<_, C, C, _, _> =
+            { ForeignEccChip::new(&config.foreign_ecc_config, &native_gadget, &native_gadget) };
         let poseidon_chip = PoseidonChip::new(&config.poseidon_config, &native_chip);
         let sha256_chip = Sha256Chip::new(&config.sha256_config, &native_gadget);
         let verifier_chip: VerifierGadget<S> =
@@ -302,7 +301,7 @@ impl Circuit<F> for WrapperCircuit {
             let mut cert_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_cert_vk,
-                &[("com_instance", id_point.clone())],
+                &[id_point.clone()],
                 &[&[cert_merkle_root, cert_msg.clone()]],
                 self.cert_proof.clone(),
             )?;
@@ -321,7 +320,7 @@ impl Circuit<F> for WrapperCircuit {
             // Update accumulator
             // Witness a proof and an accumulator that ensure the validity of `prev_state`.
             let ivc_acc = {
-                let mut fixed_base_names = vec![String::from("com_instance")];
+                let mut fixed_base_names: Vec<String> = vec![];
                 fixed_base_names.extend(verifier::fixed_base_names::<S>(
                     IVC_SD_NAME,
                     ivc_cs.num_fixed_columns() + ivc_cs.num_selectors(),
@@ -368,7 +367,7 @@ impl Circuit<F> for WrapperCircuit {
             let mut ivc_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_ivc_vk,
-                &[("com_instance", id_point)],
+                &[id_point],
                 &[&assigned_pi],
                 self.ivc_proof.clone(),
             )?;
@@ -636,7 +635,6 @@ mod tests {
         println!("Certificate circuit vk pk generation took: {:?}", duration);
 
         let mut cert_fixed_bases = BTreeMap::new();
-        cert_fixed_bases.insert(String::from("com_instance"), C::identity());
         cert_fixed_bases.extend(verifier::fixed_bases::<S>(CERT_VK_NAME, &cert_vk.vk()));
         let cert_fixed_base_names = cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
 
@@ -679,9 +677,9 @@ mod tests {
             };
             assert!(cert_dual_msm.clone().check(&cert_srs.verifier_params()));
 
-            let mut cert_acc: Accumulator<S> = cert_dual_msm.into();
-            cert_acc.extract_fixed_bases(&cert_fixed_bases);
-            assert!(cert_acc.check(&cert_srs.s_g2().into(), &cert_fixed_bases));
+            let mut cert_acc =
+                Accumulator::<S>::from_dual_msm(cert_dual_msm, CERT_VK_NAME, &cert_fixed_bases);
+            assert!(cert_acc.check(&cert_srs.verifier_params(), &cert_fixed_bases));
             cert_acc.collapse();
             cert_acc
         };
@@ -733,7 +731,6 @@ mod tests {
         }
 
         let mut ivc_fixed_bases = BTreeMap::new();
-        ivc_fixed_bases.insert(String::from("com_instance"), C::identity());
         ivc_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_SD_NAME, &ivc_vk));
         let ivc_fixed_base_names = ivc_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
@@ -820,8 +817,8 @@ mod tests {
                 &[ivc_circuit.clone()],
                 1,
                 &[&[&[], &public_inputs]],
-                OsRng,
                 &mut transcript,
+                OsRng,
             );
             if res.is_err() {
                 println!("create proof error {:?}", res);
@@ -847,8 +844,8 @@ mod tests {
             let duration = start.elapsed(); // Measure the elapsed time after proof generation.
             println!("IVC proof verification took: {:?}", duration);
 
-            let mut proof_acc: Accumulator<S> = dual_msm.into();
-            proof_acc.extract_fixed_bases(&ivc_fixed_bases);
+            let mut proof_acc =
+                Accumulator::<S>::from_dual_msm(dual_msm, IVC_SD_NAME, &ivc_fixed_bases);
             proof_acc.collapse();
             proof_acc
         };
@@ -910,7 +907,7 @@ mod tests {
             accumulated.collapse();
 
             assert!(
-                accumulated.check(&srs.s_g2().into(), &ivc_cert_fixed_bases),
+                accumulated.check(&srs.verifier_params(), &ivc_cert_fixed_bases),
                 "IVC and cert acc verification failed"
             );
             accumulated
@@ -948,8 +945,8 @@ mod tests {
                 &[wrapper_circuit.clone()],
                 1,
                 &[&[&[], &wrapper_public_inputs]],
-                OsRng,
                 &mut transcript,
+                OsRng,
             );
             if res.is_err() {
                 println!("create proof error {:?}", res);
@@ -984,7 +981,7 @@ mod tests {
                 };
 
                 assert!(
-                    wrapper_acc.check(&srs.s_g2().into(), &ivc_cert_fixed_bases),
+                    wrapper_acc.check(&srs.verifier_params(), &ivc_cert_fixed_bases),
                     "Wrapper acc verification failed"
                 );
             }

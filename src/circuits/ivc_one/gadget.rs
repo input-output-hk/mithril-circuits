@@ -21,7 +21,6 @@ use group::Group;
 use std::collections::HashSet;
 
 use midnight_circuits::hash::sha256::Sha256Chip;
-use rand_core::OsRng;
 
 #[derive(Debug, Clone)]
 pub struct IvcGadget {
@@ -41,14 +40,8 @@ impl IvcGadget {
             P2RDecompositionChip::new(&config.core_decomp_config, &(K as usize - 1));
         let native_gadget = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
         let jubjub_chip = EccChip::<Jubjub>::new(&config.jubjub_config, &native_gadget);
-        let bls12_381_chip: ForeignEccChip<_, C, C, _, _> = {
-            ForeignEccChip::new(
-                &config.bls12_381_config,
-                &native_gadget,
-                &native_gadget,
-                OsRng,
-            )
-        };
+        let bls12_381_chip: ForeignEccChip<_, C, C, _, _> =
+            { ForeignEccChip::new(&config.bls12_381_config, &native_gadget, &native_gadget) };
         let poseidon_chip = PoseidonChip::new(&config.poseidon_config, &native_chip);
         let sha2_256_chip = Sha256Chip::new(&config.sha256_config, &native_gadget);
         let verifier_gadget: VerifierGadget<S> =
@@ -526,7 +519,7 @@ impl IvcGadget {
         let mut cert_proof_acc = self.verifier_gadget.prepare(
             layouter,
             &global.cert_vk,
-            &[("com_instance", id_point.clone())],
+            &[id_point.clone()],
             &[&[witness.cert_merkle_root.clone(), witness.cert_msg.clone()]],
             cert_proof.clone(),
         )?;
@@ -566,7 +559,7 @@ impl IvcGadget {
         let mut self_proof_acc = self.verifier_gadget.prepare(
             layouter,
             &global.self_vk,
-            &[("com_instance", id_point)],
+            &[id_point],
             &[&assigned_pi],
             self_proof.clone(),
         )?;

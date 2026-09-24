@@ -8,7 +8,6 @@ use crate::{
     ZeroInstructions, nb_foreign_ecc_chip_columns, verifier,
 };
 use halo2curves::{ff::Field, group::Group};
-use rand_core::OsRng;
 
 type S = BlstrsEmulation;
 type F = <S as SelfEmulation>::F;
@@ -63,9 +62,15 @@ pub fn configure_ivc_circuit(
         P2RDecompositionChip::configure(meta, &(native_config.clone(), pow2_config))
     };
 
-    let base_config = FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns);
-    let curve_config =
-        ForeignEccChip::<F, C, C, NG, NG>::configure(meta, &base_config, &advice_columns);
+    let base_config =
+        FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns, NB_ARITH_COLS - 1, K - 1);
+    let curve_config = ForeignEccChip::<F, C, C, NG, NG>::configure(
+        meta,
+        &base_config,
+        &advice_columns,
+        NB_ARITH_COLS - 1,
+        K - 1,
+    );
 
     let poseidon_config = PoseidonChip::configure(
         meta,
@@ -111,7 +116,7 @@ impl Circuit<F> for IvcCircuit {
         let native_chip = <NativeChip<F> as ComposableChip<F>>::new(&config.0, &());
         let core_decomp_chip = P2RDecompositionChip::new(&config.1, &(K as usize - 1));
         let scalar_chip = NativeGadget::new(core_decomp_chip.clone(), native_chip.clone());
-        let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip, OsRng) };
+        let curve_chip = { ForeignEccChip::new(&config.2, &scalar_chip, &scalar_chip) };
         let poseidon_chip = PoseidonChip::new(&config.3, &native_chip);
 
         let verifier_chip = VerifierGadget::new(&curve_chip, &scalar_chip, &poseidon_chip);
@@ -134,7 +139,7 @@ impl Circuit<F> for IvcCircuit {
 
         // Witness a proof and an accumulator that ensure the validity of `prev_state`.
         let prev_acc = {
-            let mut fixed_base_names = vec![String::from("com_instance")];
+            let mut fixed_base_names: Vec<String> = vec![];
             fixed_base_names.extend(verifier::fixed_base_names::<S>(
                 self_vk_name,
                 self_cs.num_fixed_columns() + self_cs.num_selectors(),
@@ -168,7 +173,7 @@ impl Circuit<F> for IvcCircuit {
         let mut proof_acc = verifier_chip.prepare(
             &mut layouter,
             &assigned_self_vk,
-            &[("com_instance", id_point)],
+            &[id_point],
             &[&assigned_pi],
             self.prev_proof.clone(),
         )?;
@@ -268,7 +273,6 @@ mod tests {
         }
 
         let mut fixed_bases = BTreeMap::new();
-        fixed_bases.insert(String::from("com_instance"), C::identity());
         fixed_bases.extend(midnight_circuits::verifier::fixed_bases::<S>(
             "self_vk", &vk,
         ));
@@ -337,8 +341,8 @@ mod tests {
                     &[circuit.clone()],
                     1,
                     &[&[&[], &public_inputs]],
-                    OsRng,
                     &mut transcript,
+                    OsRng,
                 )
                 .unwrap_or_else(|_| panic!("Problem creating the {i}-th IVC proof"));
                 transcript.finalize()
@@ -361,8 +365,8 @@ mod tests {
                 let duration = start.elapsed(); // Measure the elapsed time after proof generation.
                 println!("\nIVC proof verification took: {:?}", duration);
 
-                let mut proof_acc: Accumulator<S> = dual_msm.into();
-                proof_acc.extract_fixed_bases(&fixed_bases);
+                let mut proof_acc =
+                    Accumulator::<S>::from_dual_msm(dual_msm, "self_vk", &fixed_bases);
                 proof_acc.collapse();
                 proof_acc
             };
@@ -379,7 +383,7 @@ mod tests {
             accumulated.collapse();
 
             assert!(
-                accumulated.check(&srs.s_g2().into(), &fixed_bases),
+                accumulated.check(&srs.verifier_params(), &fixed_bases),
                 "IVC acc verification failed"
             );
 
@@ -411,8 +415,8 @@ mod tests {
                         )
                         .expect("Verification failed");
 
-                    let mut proof_acc: Accumulator<S> = dual_msm.into();
-                    proof_acc.extract_fixed_bases(&fixed_bases);
+                    let mut proof_acc =
+                        Accumulator::<S>::from_dual_msm(dual_msm, "self_vk", &fixed_bases);
                     proof_acc.collapse();
                     proof_acc
                 };
@@ -421,7 +425,7 @@ mod tests {
                 accumulated.collapse();
 
                 assert!(
-                    accumulated.check(&srs.s_g2().into(), &fixed_bases),
+                    accumulated.check(&srs.verifier_params(), &fixed_bases),
                     "IVC acc verification failed"
                 );
             }

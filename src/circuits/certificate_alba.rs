@@ -89,6 +89,8 @@ impl Relation for Certificate {
         AlbaProofMeta,
     );
 
+    type Error = Error;
+
     fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
         Ok(vec![instance.0, instance.1])
     }
@@ -380,6 +382,8 @@ impl Relation for Certificate {
             keccak_256: false,
             sha3_256: false,
             secp256k1: false,
+            p256: false,
+            curve25519: false,
             bls12_381: false,
             base64: false,
             nr_pow2range_cols: 2,
@@ -587,9 +591,9 @@ mod tests {
         let (instance, witness) = create_proofs(num_signers, set_size, &alba_proof_params);
 
         {
-            let circuit = MidnightCircuit::from_relation(&relation);
-            println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", zk::cost_model(&relation));
+            let circuit = MidnightCircuit::from_relation(&relation, None);
+            println!("k (optimal) {:?}", circuit.k());
+            println!("{:?}", zk::cost_model(&relation, None));
         }
 
         let start = Instant::now();

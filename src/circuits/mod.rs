@@ -263,6 +263,8 @@ mod tests {
 
         type Witness = (F, F);
 
+        type Error = Error;
+
         fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
             Ok(vec![*instance])
         }
@@ -294,6 +296,8 @@ mod tests {
                 keccak_256: false,
                 sha3_256: false,
                 secp256k1: false,
+                p256: false,
+                curve25519: false,
                 bls12_381: false,
                 base64: false,
                 nr_pow2range_cols: 2,
@@ -318,9 +322,9 @@ mod tests {
         let relation = TestCircuit;
 
         {
-            let circuit = MidnightCircuit::from_relation(&relation);
-            println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", zk::cost_model(&relation));
+            let circuit = MidnightCircuit::from_relation(&relation, None);
+            println!("k (optimal) {:?}", circuit.k());
+            println!("{:?}", zk::cost_model(&relation, None));
         }
 
         {
@@ -331,9 +335,9 @@ mod tests {
                 &relation,
                 Value::known(instance),
                 Value::known(witness),
-                None,
+                Some(K),
             );
-            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+            let prover = match MockProver::run(&circuit, vec![vec![], vec![instance]]) {
                 Ok(prover) => prover,
                 Err(e) => panic!("{e:?}"),
             };
@@ -348,9 +352,9 @@ mod tests {
                 &relation,
                 Value::known(instance),
                 Value::known(witness),
-                None,
+                Some(K),
             );
-            let prover = match MockProver::run(K, &circuit, vec![vec![], vec![instance]]) {
+            let prover = match MockProver::run(&circuit, vec![vec![], vec![instance]]) {
                 Ok(prover) => prover,
                 Err(e) => panic!("{e:?}"),
             };

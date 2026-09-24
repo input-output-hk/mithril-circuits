@@ -22,7 +22,10 @@ pub use midnight_zk_stdlib::{
 pub use midnight_circuits::{
     ecc::{
         curves::CircuitCurve,
-        foreign::{ForeignEccChip, ForeignEccConfig, nb_foreign_ecc_chip_columns},
+        foreign::weierstrass_chip::{
+            ForeignWeierstrassEccChip as ForeignEccChip,
+            ForeignWeierstrassEccConfig as ForeignEccConfig, nb_foreign_ecc_chip_columns,
+        },
         hash_to_curve::HashToCurveGadget,
         native::{EccChip, EccConfig, NB_EDWARDS_COLS},
     },

@@ -15,7 +15,7 @@ fn benchmark_sign(c: &mut Criterion) {
 
     c.bench_function("Signing a message", |b| {
         b.iter(|| {
-            let _ = sk.sign(msg, &mut rng);
+            let _ = sk.sign(&[msg], &mut rng);
         })
     });
 }
@@ -25,12 +25,12 @@ fn benchmark_verify(c: &mut Criterion) {
     let mut rng = OsRng;
     let sk = SigningKey::generate(&mut rng);
     let msg = JubjubBase::random(&mut rng);
-    let signature = sk.sign(msg, &mut rng);
+    let signature = sk.sign(&[msg], &mut rng);
     let vk = VerificationKey::from(&sk);
 
     c.bench_function("Verifying a signature", |b| {
         b.iter(|| {
-            let _ = signature.verify(msg, &vk).unwrap();
+            let _ = signature.verify(&[msg], &vk).unwrap();
         })
     });
 }

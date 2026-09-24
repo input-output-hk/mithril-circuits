@@ -3,7 +3,7 @@ use crate::{
     ForeignEccConfig, Jubjub, NB_ARITH_COLS, NB_ARITH_FIXED_COLS, NB_EDWARDS_COLS,
     NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig,
     P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig, Pow2RangeChip,
-    ivc_one::{C, CBase, F, NG},
+    ivc_one::{C, CBase, F, K, NG},
     nb_foreign_ecc_chip_columns,
 };
 use midnight_circuits::hash::sha256::{
@@ -61,9 +61,15 @@ pub fn configure_ivc_circuit(meta: &mut ConstraintSystem<F>) -> IvcConfig {
     let jubjub_config =
         EccChip::<Jubjub>::configure(meta, &advice_columns[..NB_EDWARDS_COLS].try_into().unwrap());
 
-    let base_config = FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns);
-    let bls12_381_config =
-        ForeignEccChip::<F, C, C, NG, NG>::configure(meta, &base_config, &advice_columns);
+    let base_config =
+        FieldChip::<F, CBase, C, NG>::configure(meta, &advice_columns, NB_ARITH_COLS - 1, K - 1);
+    let bls12_381_config = ForeignEccChip::<F, C, C, NG, NG>::configure(
+        meta,
+        &base_config,
+        &advice_columns,
+        NB_ARITH_COLS - 1,
+        K - 1,
+    );
 
     let poseidon_config = PoseidonChip::configure(
         meta,

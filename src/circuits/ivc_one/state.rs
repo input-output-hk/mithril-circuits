@@ -6,7 +6,6 @@ use crate::{
     verifier,
 };
 use ff::Field;
-use group::Group;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
@@ -194,14 +193,13 @@ pub fn fixed_bases_and_names(
     vk: &VerifyingKey<F, KZGCommitmentScheme<E>>,
 ) -> (BTreeMap<String, C>, Vec<String>) {
     let mut fixed_bases = BTreeMap::new();
-    fixed_bases.insert(String::from("com_instance"), C::identity());
     fixed_bases.extend(verifier::fixed_bases::<S>(vk_name, vk));
     let fixed_base_names = fixed_bases.keys().cloned().collect::<Vec<_>>();
     (fixed_bases, fixed_base_names)
 }
 
 pub fn fixed_base_names(vk_name: &str, cs: &ConstraintSystem<F>) -> Vec<String> {
-    let mut fixed_base_names = vec![String::from("com_instance")];
+    let mut fixed_base_names: Vec<String> = vec![];
     fixed_base_names.extend(verifier::fixed_base_names::<S>(
         vk_name,
         cs.num_fixed_columns() + cs.num_selectors(),

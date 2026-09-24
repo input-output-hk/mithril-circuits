@@ -32,6 +32,7 @@ impl Certificate {
 impl Relation for Certificate {
     type Instance = (MerkleRoot, Msg);
     type Witness = Vec<(MTLeaf, MerklePath, Signature, LotteryIndex)>;
+    type Error = Error;
 
     fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
         Ok(vec![instance.0, instance.1])
@@ -166,6 +167,8 @@ impl Relation for Certificate {
             keccak_256: false,
             blake2b: false,
             secp256k1: false,
+            p256: false,
+            curve25519: false,
             bls12_381: false,
             base64: false,
             nr_pow2range_cols: 2,
@@ -265,12 +268,12 @@ mod tests {
 
         {
             // Print circuit sizing information.
-            let circuit = MidnightCircuit::from_relation(&relation);
+            let circuit = MidnightCircuit::from_relation(&relation, None);
             println!("\n=== Certificate case: {case_name} ===");
             println!("k (selected) {k}");
             println!("quorum {quorum}");
-            println!("min_k {:?}", circuit.min_k());
-            println!("{:?}", zk::cost_model(&relation));
+            println!("k (optimal) {:?}", circuit.k());
+            println!("{:?}", zk::cost_model(&relation, None));
         }
 
         let start = Instant::now();
