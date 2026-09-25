@@ -17,7 +17,7 @@ num-integer = "0.1"
 midnight-circuits = { version = "7.2.4" }
 midnight-curves = { version = "0.3.1" }
 midnight-proofs = { version = "0.8.2" }
-midnight-zk-stdlib = { version = "2.3.3" }
+midnight-zk-stdlib = { version = "2.3.5" }
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"
@@ -35,6 +35,17 @@ digest = { version = "0.10.7", features = ["alloc"] }
 [features]
 default = ["truncated-challenges"]
 truncated-challenges = ["midnight-circuits/truncated-challenges", "midnight-proofs/truncated-challenges"]
+
+# Use the kitounliu/midnight-zk fork instead of crates.io. A patch (rather than
+# `git = ...` in [dependencies]) is required so that the transitive
+# midnight-proofs/midnight-circuits/midnight-curves used by midnight-zk-stdlib
+# (and by blake2b_halo2) resolve to the same crate instance; otherwise two
+# isomorphic copies get built and types fail to unify.
+[patch.crates-io]
+midnight-proofs = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+midnight-curves = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+midnight-circuits = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+midnight-zk-stdlib = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
 
 [[bench]]
 name = "signature"

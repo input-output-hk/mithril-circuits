@@ -880,8 +880,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "midnight-circuits"
 version = "7.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3040d26341a9168a3db7adeb365da9b9b8e756bc911a08c5f76a6a93d441ca7"
+source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
 dependencies = [
  "base64",
  "ff",
@@ -905,8 +904,7 @@ dependencies = [
 [[package]]
 name = "midnight-curves"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efaa236cfabccb367c0a89e58a6e8f0b4ba70fb81efd07acfe1d3a0ec3bed081"
+source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
 dependencies = [
  "bitvec",
  "blst",
@@ -935,8 +933,7 @@ dependencies = [
 [[package]]
 name = "midnight-proofs"
 version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22b1526bc7d9d1fad29505a15b81fe54aa7698a7dcd1948b447021bc8571f543"
+source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
 dependencies = [
  "blake2b_simd",
  "ff",
@@ -955,9 +952,8 @@ dependencies = [
 
 [[package]]
 name = "midnight-zk-stdlib"
-version = "2.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a2efda6c377c6ff82e368a72d5b237fa94971d9ed7334f13d71305ff8921801"
+version = "2.3.5"
+source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
 dependencies = [
  "base64",
  "bincode",
