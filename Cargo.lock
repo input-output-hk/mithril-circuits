@@ -120,13 +120,12 @@ dependencies = [
 [[package]]
 name = "blake2b_halo2"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db0e2335f7864c16821ade9dcc5918780306ca9fdf3876dd2fd2c82d820aa9da"
+source = "git+https://github.com/eryxcoop/blake2b_halo2?rev=257ae18#257ae1887724ae1ed41f46effd84eb2b017433bc"
 dependencies = [
  "blake2b_simd",
  "ff",
  "hex",
- "midnight-curves",
+ "midnight-curves 0.3.0",
  "midnight-proofs",
  "num-bigint",
  "rand",
@@ -719,7 +718,7 @@ dependencies = [
  "digest 0.10.7",
  "ff",
  "group",
- "halo2derive",
+ "halo2derive 0.1.0",
  "lazy_static",
  "num-bigint",
  "num-integer",
@@ -741,6 +740,20 @@ name = "halo2derive"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdb99e7492b4f5ff469d238db464131b86c2eaac814a78715acba369f64d2c76"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "halo2derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0d74794c1b24716c5abf5d6bfd98ee3c2d346bc67da374ba21d80adb38c336c"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -816,9 +829,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -879,15 +892,15 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "midnight-circuits"
-version = "7.2.4"
-source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
+version = "7.1.0"
+source = "git+https://github.com/midnightntwrk/midnight-zk?branch=main#04a5a04cd3222c8361c2589f7ee09bd5e23b4ef7"
 dependencies = [
  "base64",
  "ff",
  "goldenfile",
  "group",
  "lazy_static",
- "midnight-curves",
+ "midnight-curves 0.3.0",
  "midnight-proofs",
  "num-bigint",
  "num-integer",
@@ -903,25 +916,23 @@ dependencies = [
 
 [[package]]
 name = "midnight-curves"
-version = "0.3.1"
-source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71a947535f03578bdc6401354accbf515257dcbaca7fb6a73c48fb0c17281a6c"
 dependencies = [
  "bitvec",
  "blst",
  "byte-slice-cast",
- "curve25519-dalek",
  "digest 0.10.7",
  "ff",
  "getrandom 0.2.17",
  "group",
+ "halo2derive 0.2.0",
  "hex",
- "k256",
  "lazy_static",
  "num-bigint",
- "p256",
  "pairing",
  "paste",
- "primeorder",
  "rand_core",
  "rayon",
  "serde",
@@ -931,20 +942,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "midnight-curves"
+version = "0.3.0"
+source = "git+https://github.com/midnightntwrk/midnight-zk?branch=main#04a5a04cd3222c8361c2589f7ee09bd5e23b4ef7"
+dependencies = [
+ "bitvec",
+ "blst",
+ "byte-slice-cast",
+ "curve25519-dalek",
+ "digest 0.10.7",
+ "ff",
+ "getrandom 0.2.17",
+ "group",
+ "k256",
+ "lazy_static",
+ "num-bigint",
+ "p256",
+ "pairing",
+ "paste",
+ "primeorder",
+ "rand_core",
+ "rayon",
+ "sha2",
+ "subtle",
+]
+
+[[package]]
 name = "midnight-proofs"
-version = "0.8.2"
-source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
+version = "0.8.0"
+source = "git+https://github.com/midnightntwrk/midnight-zk?branch=main#04a5a04cd3222c8361c2589f7ee09bd5e23b4ef7"
 dependencies = [
  "blake2b_simd",
  "ff",
  "getrandom 0.2.17",
  "group",
- "itertools 0.14.0",
- "midnight-curves",
+ "itertools 0.15.0",
+ "midnight-curves 0.3.0",
  "num-bigint",
  "rand_chacha",
  "rand_core",
  "rayon",
+ "rustc-hash",
  "serde",
  "serde_derive",
  "tracing",
@@ -952,8 +990,8 @@ dependencies = [
 
 [[package]]
 name = "midnight-zk-stdlib"
-version = "2.3.5"
-source = "git+https://github.com/kitounliu/midnight-zk?branch=kitoun%40msm-blst-no-threshold-v2#3e3681b495c2a6ce0e9c1291f2e2e17a973b452e"
+version = "2.2.0"
+source = "git+https://github.com/midnightntwrk/midnight-zk?branch=main#04a5a04cd3222c8361c2589f7ee09bd5e23b4ef7"
 dependencies = [
  "base64",
  "bincode",
@@ -963,7 +1001,7 @@ dependencies = [
  "group",
  "hex-literal",
  "midnight-circuits",
- "midnight-curves",
+ "midnight-curves 0.3.0",
  "midnight-proofs",
  "num-bigint",
  "num-traits",
@@ -987,7 +1025,7 @@ dependencies = [
  "group",
  "halo2curves",
  "midnight-circuits",
- "midnight-curves",
+ "midnight-curves 0.3.0",
  "midnight-proofs",
  "midnight-zk-stdlib",
  "num-bigint",
@@ -1444,13 +1482,12 @@ dependencies = [
 
 [[package]]
 name = "sha3-circuit"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4237ceb913f4dcf6219c5303d37122c8cd3734cbe1314274158a8eb609dedac8"
+version = "0.1.0"
+source = "git+https://github.com/alexandroszacharakis8/sha3-circuit?rev=1a3ef7d#1a3ef7d2ce603a26081f428fa74b4a631e243f25"
 dependencies = [
  "blake2b_simd",
  "ff",
- "midnight-curves",
+ "midnight-curves 0.2.1",
  "midnight-proofs",
  "num-bigint",
  "rand",

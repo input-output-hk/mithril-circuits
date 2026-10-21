@@ -29,13 +29,15 @@ pub mod state;
 mod tests {
     use super::*;
     use crate::{
-        Accumulator, AssignedAccumulator, Bls12, CERT_VK_NAME, CircuitTranscript, IVC_ONE_NAME,
-        Instantiable, KZGCommitmentScheme, ParamsKZG, PoseidonState, Relation, Transcript,
+        Accumulator, AssignedAccumulator, Bls12, CERT_VK_NAME, CircuitTranscript, Instantiable,
+        KZGCommitmentScheme, ParamsKZG, PoseidonState, Relation, Transcript,
         certificate::Certificate,
-        circuit_model, create_proof,
+        circuit_model,
+        circuits::fixed_bases,
+        create_proof,
         ivc_one::{
             circuit::IvcCircuit,
-            state::{Global, State, Witness, fixed_bases_and_names, trivial_acc},
+            state::{Global, State, Witness, fixed_bases_and_labels, trivial_acc},
         },
         keygen_pk, keygen_vk_with_k,
         merkle_tree::{MTLeaf, MerklePath, MerkleTree},
@@ -48,12 +50,9 @@ mod tests {
         utils::jubjub_base_from_le_bytes,
     };
     use ff::Field;
-    use group::Group;
     use midnight_proofs::utils::SerdeFormat;
     use midnight_zk_stdlib as zk_lib;
-    use midnight_zk_stdlib::utils::plonk_api::filecoin_srs;
     use rand_core::OsRng;
-    use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::{BufReader, Cursor, Write};
     use std::time::Instant;
@@ -252,9 +251,9 @@ mod tests {
             >(
                 $srs,
                 $pk,
-                &[$circuit.clone()],
-                1,
-                &[&[&[], $public_inputs]],
+                &$circuit,
+                0,
+                &[&[], $public_inputs],
                 &mut transcript,
                 OsRng,
             );
@@ -275,8 +274,8 @@ mod tests {
             let dual_msm =
                 prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<$TranscriptType>>(
                     $vk,
-                    &[&[C::identity()]],
-                    &[&[$public_inputs]],
+                    &[],
+                    &[&[], $public_inputs],
                     &mut transcript,
                 )
                 .expect("Verification failed");
@@ -337,11 +336,14 @@ mod tests {
             K_INNER
         );
 
-        // Get fixed bases and their names from cert_vk
-        let (cert_fixed_bases, cert_fixed_base_names) =
-            fixed_bases_and_names(CERT_VK_NAME, cert_vk.vk());
+        // Fixed bases of cert_vk: with their native labels (to convert dual MSMs
+        // into accumulators) and with CERT_VK_NAME-prefixed labels (as they are
+        // folded into the IVC accumulator, see the `fixed_bases` module).
+        let (cert_native_fixed_bases, _) = fixed_bases_and_labels(None, cert_vk.vk());
+        let (cert_fixed_bases, cert_fixed_base_labels) =
+            fixed_bases_and_labels(Some(CERT_VK_NAME), cert_vk.vk());
         // Get trivial accumulator for certificate proof
-        let cert_trivial_acc = trivial_acc(&cert_fixed_base_names);
+        let cert_trivial_acc = trivial_acc(&cert_fixed_base_labels);
         let mut cert_proofs = vec![vec![]];
         // We don't need to use cert_trivial_acc
         let mut cert_accs = vec![cert_trivial_acc];
@@ -367,11 +369,14 @@ mod tests {
                 &cert_instances[i]
             );
             assert!(cert_dual_msm.clone().check(&srs_verifier));
-            // Convert dual_msm into accumulator
-            let mut cert_acc =
-                Accumulator::<S>::from_dual_msm(cert_dual_msm, CERT_VK_NAME, &cert_fixed_bases);
+            // Convert dual_msm into a collapsed accumulator whose fixed bases carry the
+            // CERT_VK_NAME-prefixed labels (collapsed before re-labelling, as in circuit)
+            let cert_acc = fixed_bases::collapsed_relabeled_acc(
+                CERT_VK_NAME,
+                cert_dual_msm,
+                &cert_native_fixed_bases,
+            );
             assert!(cert_acc.check(&srs_verifier, &cert_fixed_bases));
-            cert_acc.collapse();
 
             cert_proofs.push(cert_proof);
             cert_accs.push(cert_acc);
@@ -380,7 +385,7 @@ mod tests {
         // Default ivc circuit for setting up proving key and verifying key
         let default_ivc_circuit = IvcCircuit::unknown(&cert_vk.vk());
         {
-            let circuit_model = circuit_model::<_, 48, 32>(&default_ivc_circuit);
+            let circuit_model = circuit_model::<_, KZGCommitmentScheme<E>>(&default_ivc_circuit, 0);
             println!("\n{:?}", circuit_model);
         }
 
@@ -399,29 +404,27 @@ mod tests {
             println!("ivc_vk hash {:?}", self_vk.transcript_repr());
         }
 
-        // Get fixed bases and their names from ivc_vk
-        let (self_fixed_bases, self_fixed_base_names) =
-            fixed_bases_and_names(IVC_ONE_NAME, &self_vk);
+        // Get fixed bases and their (native) labels from ivc_vk
+        let (self_fixed_bases, self_fixed_base_labels) = fixed_bases_and_labels(None, &self_vk);
         println!(
-            "IVC fixed base name length {:?}",
-            self_fixed_base_names.len()
+            "IVC fixed base label length {:?}",
+            self_fixed_base_labels.len()
         );
 
-        // Combine fixed bases and their names for cert_vk and ivc_vk
-        let mut combined_fixed_bases = BTreeMap::new();
-        combined_fixed_bases.extend(cert_fixed_bases.clone());
-        combined_fixed_bases.extend(self_fixed_bases.clone());
-        let combined_fixed_base_names = combined_fixed_bases.keys().cloned().collect::<Vec<_>>();
+        // Combine fixed bases and their labels for cert_vk (prefixed) and ivc_vk
+        let combined_fixed_bases =
+            fixed_bases::combine_fixed_bases(&[&cert_fixed_bases, &self_fixed_bases]);
+        let combined_fixed_base_labels = combined_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
-            "Combined fixed base name length {:?}",
-            combined_fixed_base_names.len()
+            "Combined fixed base label length {:?}",
+            combined_fixed_base_labels.len()
         );
 
         let global = Global::new(genesis_msg, genesis_vk, cert_vk.vk(), &self_vk);
         let mut state = State::genesis();
         let mut self_proof: Vec<u8> = vec![];
         // Trivial accumulator for the combined fixed bases
-        let mut acc = trivial_acc(&combined_fixed_base_names);
+        let mut acc = trivial_acc(&combined_fixed_base_labels);
         let mut next_acc = acc.clone();
         for i in 0..NUM_CERT {
             let circuit = IvcCircuit::new(
@@ -480,8 +483,7 @@ mod tests {
                 println!("IVC proof verification took: {:?}", duration);
 
                 // Convert dual_msm into an accumulator
-                let mut proof_acc =
-                    Accumulator::<S>::from_dual_msm(dual_msm, IVC_ONE_NAME, &self_fixed_bases);
+                let mut proof_acc = Accumulator::<S>::from_dual_msm(dual_msm, &self_fixed_bases);
                 proof_acc.collapse();
                 proof_acc
             };

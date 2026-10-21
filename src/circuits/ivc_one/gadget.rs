@@ -1,24 +1,20 @@
 use crate::{
     Accumulator, ArithInstructions, AssertionInstructions, AssignedAccumulator, AssignedBit,
-    AssignedForeignPoint, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
-    AssignedVk, AssignmentInstructions, BinaryInstructions, CERT_VK_NAME, CircuitCurve,
-    ComposableChip, ConstraintSystem, ControlFlowInstructions, ConversionInstructions,
-    DST_SCHNORR_SIGNATURE, EccChip, EccInstructions, EqualityInstructions, Error, EvaluationDomain,
-    ForeignEccChip, HashInstructions, IVC_ONE_NAME, Jubjub, Layouter, NativeChip, NativeGadget,
-    P2RDecompositionChip, PoseidonChip, PublicInputInstructions, Value, VerifierGadget,
-    ZeroInstructions,
+    AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve, AssignedVk,
+    AssignmentInstructions, BinaryInstructions, CERT_VK_NAME, CircuitCurve, ComposableChip,
+    ConstraintSystem, ControlFlowInstructions, ConversionInstructions, DST_SCHNORR_SIGNATURE,
+    EccChip, EccInstructions, EqualityInstructions, Error, EvaluationDomain, ForeignEccChip,
+    HashInstructions, Jubjub, Layouter, NativeChip, NativeGadget, P2RDecompositionChip,
+    PoseidonChip, PublicInputInstructions, Value, VerifierGadget, ZeroInstructions,
+    circuits::fixed_bases,
     ivc_one::{
         C, F, K, NG, S,
         config::IvcConfig,
-        state::{
-            AssignedGlobal, AssignedState, AssignedWitness, Global, State, Witness,
-            fixed_base_names,
-        },
+        state::{AssignedGlobal, AssignedState, AssignedWitness, Global, State, Witness},
     },
 };
 use ff::Field;
 use group::Group;
-use std::collections::HashSet;
 
 use midnight_circuits::hash::sha256::Sha256Chip;
 
@@ -73,39 +69,42 @@ impl IvcGadget {
             .assign_as_public_input(layouter, global.clone().map(|gl| gl.genesis_vk.0))?;
 
         let (cert_domain, cert_cs) = &cert_domain_cs;
-        let cert_vk: AssignedVk<S> = self.verifier_gadget.assign_vk_as_public_input(
+        let cert_vk: AssignedVk<S> = fixed_bases::assign_vk(
             layouter,
-            CERT_VK_NAME,
+            &self.verifier_gadget,
+            &self.native_gadget,
             cert_domain,
             cert_cs,
-            global.clone().map(|gl| gl.cert_vk_repr),
+            global.as_ref().map(|gl| &gl.cert_vk),
         )?;
 
         // Assign for self-proof verification
         let (self_domain, self_cs) = &self_domain_cs;
-        let self_vk: AssignedVk<S> = self.verifier_gadget.assign_vk_as_public_input(
+        let self_vk: AssignedVk<S> = fixed_bases::assign_vk(
             layouter,
-            IVC_ONE_NAME,
+            &self.verifier_gadget,
+            &self.native_gadget,
             self_domain,
             self_cs,
-            global.clone().map(|gl| gl.self_vk_repr),
+            global.as_ref().map(|gl| &gl.self_vk),
         )?;
 
-        let fixed_base_names = {
-            let mut names = fixed_base_names(CERT_VK_NAME, cert_cs);
-            names.extend(fixed_base_names(IVC_ONE_NAME, self_cs));
-            // Remove repeated names for committed_instance and the generator
-            let mut seen = HashSet::new();
-            names.retain(|x| seen.insert(x.clone()));
-            names
-        };
+        // The fixed bases of cert_vk are re-labelled with the CERT_VK_NAME prefix
+        // so that they do not collide with the ones of self_vk (see the
+        // `fixed_bases` module). The shared negated generator is de-duplicated.
+        let cert_fixed_base_labels = fixed_bases::fixed_base_labels(cert_cs);
+        let fixed_base_labels = fixed_bases::combine_labels(&[
+            &fixed_bases::relabel_all(CERT_VK_NAME, &cert_fixed_base_labels),
+            &fixed_bases::fixed_base_labels(self_cs),
+        ]);
 
         Ok(AssignedGlobal {
             genesis_msg,
             genesis_vk,
             cert_vk,
             self_vk,
-            fixed_base_names,
+            cert_fixed_base_labels,
+            fixed_base_labels,
         })
     }
 
@@ -513,14 +512,14 @@ impl IvcGadget {
         self_proof: &Value<Vec<u8>>,
         acc_value: &Value<Accumulator<S>>,
     ) -> Result<AssignedAccumulator<S>, Error> {
-        let id_point: AssignedForeignPoint<_, _, _> =
-            self.bls12_381_chip.assign_fixed(layouter, C::identity())?;
-
         let mut cert_proof_acc = self.verifier_gadget.prepare(
             layouter,
             &global.cert_vk,
-            &[id_point.clone()],
-            &[&[witness.cert_merkle_root.clone(), witness.cert_msg.clone()]],
+            &[],
+            &[
+                &[],
+                &[witness.cert_merkle_root.clone(), witness.cert_msg.clone()],
+            ],
             cert_proof.clone(),
         )?;
 
@@ -534,14 +533,22 @@ impl IvcGadget {
         )?;
         cert_proof_acc.collapse(layouter, &self.bls12_381_chip, &self.native_gadget)?;
 
-        let acc = AssignedAccumulator::assign(
+        // Move the fixed bases of the certificate proof to the CERT_VK_NAME-prefixed
+        // labels so that they can be folded with the (natively labelled) fixed bases
+        // of the self proof.
+        let cert_proof_acc = fixed_bases::relabel_collapsed_acc(
             layouter,
+            &self.verifier_gadget,
             &self.bls12_381_chip,
             &self.native_gadget,
-            1,
-            1,
-            &[],
-            &global.fixed_base_names,
+            CERT_VK_NAME,
+            &global.cert_fixed_base_labels,
+            &cert_proof_acc,
+        )?;
+
+        let acc = self.verifier_gadget.assign_collapsed_accumulator(
+            layouter,
+            &global.fixed_base_labels,
             acc_value.clone(),
         )?;
 
@@ -559,8 +566,8 @@ impl IvcGadget {
         let mut self_proof_acc = self.verifier_gadget.prepare(
             layouter,
             &global.self_vk,
-            &[id_point],
-            &[&assigned_pi],
+            &[],
+            &[&[], &assigned_pi],
             self_proof.clone(),
         )?;
 
@@ -575,13 +582,9 @@ impl IvcGadget {
         self_proof_acc.collapse(layouter, &self.bls12_381_chip, &self.native_gadget)?;
 
         // Accumulate the cert_proof_acc
-        let mut next_acc = AssignedAccumulator::<S>::accumulate(
-            layouter,
-            &self.verifier_gadget,
-            &self.native_gadget,
-            &self.poseidon_chip,
-            &[acc, cert_proof_acc, self_proof_acc],
-        )?;
+        let mut next_acc = self
+            .verifier_gadget
+            .accumulate(layouter, &[acc, cert_proof_acc, self_proof_acc])?;
         next_acc.collapse(layouter, &self.bls12_381_chip, &self.native_gadget)?;
 
         Ok(next_acc)

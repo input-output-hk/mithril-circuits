@@ -16,7 +16,8 @@ pub use circuits::*;
 pub use signatures::*;
 
 pub use midnight_zk_stdlib::{
-    MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch, utils::plonk_api::filecoin_srs,
+    MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch,
+    utils::plonk_api::{SrsSource, load_srs, srs_for_test},
 };
 
 pub use midnight_circuits::{
@@ -36,7 +37,7 @@ pub use midnight_circuits::{
             pow2range::Pow2RangeChip,
         },
         foreign::FieldChip,
-        native::{NB_ARITH_COLS, NB_ARITH_FIXED_COLS},
+        native::{MIN_NB_ARITH_COLS, NB_EXTRA_ARITH_FIXED_COLS},
     },
     hash::poseidon::{
         NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, PoseidonChip, PoseidonConfig,
@@ -50,11 +51,11 @@ pub use midnight_circuits::{
     },
     types::{
         AssignedBit, AssignedByte, AssignedForeignPoint, AssignedNative, AssignedNativePoint,
-        AssignedScalarOfNativeCurve, ComposableChip, Instantiable,
+        AssignedScalarOfNativeCurve, ComposableChip, InnerValue, Instantiable,
     },
     verifier::{
-        self, Accumulator, AssignedAccumulator, AssignedVk, BlstrsEmulation, Msm, SelfEmulation,
-        VerifierGadget,
+        self, Accumulator, AssignedAccumulator, AssignedKZGMultiCommitment, AssignedVk,
+        BlstrsEmulation, InCircuitKZG, Msm, Point, SelfEmulation, VerifierGadget,
     },
 };
 
@@ -66,9 +67,24 @@ pub use midnight_proofs::{
         prepare,
     },
     poly::kzg::params::ParamsKZG,
-    poly::{EvaluationDomain, kzg::KZGCommitmentScheme},
+    poly::{
+        EvaluationDomain, PolynomialLabel,
+        kzg::{KZGCommitmentScheme, commitment::KZGMultiCommitment, msm::DualMSM},
+    },
     transcript::{CircuitTranscript, Transcript},
 };
+
+/// Number of advice columns used by the native arithmetic chip in the
+/// hand-rolled IVC circuits of this crate.
+///
+/// `midnight-circuits` used to export this as a compile-time constant; since
+/// the arithmetic column count became configurable (PR #287) only the lower
+/// bound [`MIN_NB_ARITH_COLS`] is exported. We keep the historical value so
+/// the column layout (and hence `k`) of the IVC circuits is unchanged.
+pub const NB_ARITH_COLS: usize = MIN_NB_ARITH_COLS;
+/// Number of fixed columns required by the native arithmetic chip for
+/// [`NB_ARITH_COLS`] advice columns.
+pub const NB_ARITH_FIXED_COLS: usize = NB_ARITH_COLS + NB_EXTRA_ARITH_FIXED_COLS;
 
 type JubjubHashToCurve = HashToCurveGadget<
     JubjubBase,

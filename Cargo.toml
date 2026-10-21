@@ -14,10 +14,10 @@ num-bigint = { version = "0.4" }
 num-traits = "0.2"
 num-integer = "0.1"
 
-midnight-circuits = { version = "7.2.4" }
-midnight-curves = { version = "0.3.1" }
-midnight-proofs = { version = "0.8.2" }
-midnight-zk-stdlib = { version = "2.3.5" }
+midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+midnight-zk-stdlib = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
 halo2curves = { version = "0.7.0", default-features = false }
 
 thiserror = "2.0.12"
@@ -34,18 +34,45 @@ digest = { version = "0.10.7", features = ["alloc"] }
 
 [features]
 default = ["truncated-challenges"]
-truncated-challenges = ["midnight-circuits/truncated-challenges", "midnight-proofs/truncated-challenges"]
+# Compatibility alias: upstream midnight-zk now always truncates challenges.
+truncated-challenges = []
 
-# Use the kitounliu/midnight-zk fork instead of crates.io. A patch (rather than
-# `git = ...` in [dependencies]) is required so that the transitive
-# midnight-proofs/midnight-circuits/midnight-curves used by midnight-zk-stdlib
-# (and by blake2b_halo2) resolve to the same crate instance; otherwise two
-# isomorphic copies get built and types fail to unify.
+# midnight-zk is consumed from upstream `main` (git) rather than crates.io; the
+# [dependencies] entries above point at git directly. This [patch.crates-io]
+# section is still required: midnight-zk-stdlib (and blake2b_halo2) depend on
+# midnight-proofs/-circuits/-curves through crates.io version requirements, and
+# without the patch a second, isomorphic copy of those crates would be built and
+# types would fail to unify. `main` currently carries *lower* version numbers
+# than the crates.io releases (which are cut from the `zk-stdlib-v2` branch), so
+# a patch alone would lose to the registry; hence git in both places.
+# midnight-zk-stdlib needs no patch entry: nothing references it via crates.io.
+#
+# Cargo.lock matters here: because the registry has newer versions, a fresh
+# resolution (`cargo update` with no arguments, or deleting Cargo.lock) pulls
+# midnight-curves 0.3.1 / midnight-proofs 0.8.2 from crates.io next to the git
+# ones and the build breaks inside midnight-proofs. Keep Cargo.lock committed;
+# if it happens, re-pin with
+#   cargo update midnight-circuits@7.2.4 --precise 7.1.0
+#   cargo update midnight-proofs@0.8.2   --precise 0.8.0
+#   cargo update midnight-curves@0.3.1   --precise 0.3.0
+# (adjust versions to whatever `main` and crates.io carry at the time).
 [patch.crates-io]
-midnight-proofs = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-midnight-curves = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-midnight-circuits = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-midnight-zk-stdlib = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
+#
+# Alternatives for the 2.3.5-based release line (also switch [dependencies]
+# back to crates.io versions 7.2.4 / 0.3.1 / 0.8.2 / 2.3.5):
+# kitounliu/midnight-zk fork, branch kitoun@msm-blst-no-threshold-v2:
+# midnight-proofs = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+# midnight-curves = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+# midnight-circuits = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+# midnight-zk-stdlib = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
+# Local checkout (sibling directory):
+# midnight-proofs = { path = "../midnight-zk/proofs" }
+# midnight-curves = { path = "../midnight-zk/curves" }
+# midnight-circuits = { path = "../midnight-zk/circuits" }
+# midnight-zk-stdlib = { path = "../midnight-zk/zk_stdlib" }
 
 [[bench]]
 name = "signature"

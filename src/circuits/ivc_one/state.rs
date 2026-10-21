@@ -1,9 +1,9 @@
 use crate::{
     Accumulator, AssignedByte, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
-    AssignedVk, ConstraintSystem, Instantiable, Jubjub, KZGCommitmentScheme, Msm, VerifyingKey,
+    AssignedVk, Instantiable, Jubjub, KZGCommitmentScheme, PolynomialLabel, VerifyingKey,
+    circuits::fixed_bases,
     ivc_one::{C, E, F, PREIMAGE_SIZE, S},
     schnorr_signature::{Signature as SchnorrSignature, VerificationKey as SchnorrVerificationKey},
-    verifier,
 };
 use ff::Field;
 use std::collections::BTreeMap;
@@ -98,10 +98,10 @@ pub struct Global {
     // Persistent values that do not change through an ivc stream
     pub(crate) genesis_msg: F,
     pub(crate) genesis_vk: SchnorrVerificationKey,
-    // cert_vk hash
-    pub(crate) cert_vk_repr: F,
-    // ivc_vk hash
-    pub(crate) self_vk_repr: F,
+    // Certificate verifying key
+    pub(crate) cert_vk: VerifyingKey<F, KZGCommitmentScheme<E>>,
+    // IVC verifying key
+    pub(crate) self_vk: VerifyingKey<F, KZGCommitmentScheme<E>>,
 }
 
 impl Global {
@@ -114,8 +114,8 @@ impl Global {
         Global {
             genesis_msg,
             genesis_vk,
-            cert_vk_repr: cert_vk.transcript_repr(),
-            self_vk_repr: self_vk.transcript_repr(),
+            cert_vk: cert_vk.clone(),
+            self_vk: self_vk.clone(),
         }
     }
 
@@ -123,7 +123,8 @@ impl Global {
         [
             vec![self.genesis_msg],
             AssignedNativePoint::<Jubjub>::as_public_input(&self.genesis_vk.0),
-            vec![self.cert_vk_repr, self.self_vk_repr],
+            AssignedVk::<S>::as_public_input(&self.cert_vk),
+            AssignedVk::<S>::as_public_input(&self.self_vk),
         ]
         .concat()
     }
@@ -136,8 +137,10 @@ pub struct AssignedGlobal {
     pub(crate) genesis_vk: AssignedNativePoint<Jubjub>,
     pub(crate) cert_vk: AssignedVk<S>,
     pub(crate) self_vk: AssignedVk<S>,
-    // Combined fixed base names for cert_vk and ivc_vk
-    pub(crate) fixed_base_names: Vec<String>,
+    // Native (unprefixed) fixed base labels of cert_vk, in collapsed order
+    pub(crate) cert_fixed_base_labels: Vec<PolynomialLabel>,
+    // Combined fixed base labels for cert_vk (prefixed) and ivc_vk, in collapsed order
+    pub(crate) fixed_base_labels: Vec<PolynomialLabel>,
 }
 
 #[derive(Clone, Debug)]
@@ -174,36 +177,23 @@ pub struct AssignedWitness {
     pub(crate) msg_preimage: Vec<AssignedByte<F>>,
 }
 
-pub fn trivial_acc(fixed_base_names: &[String]) -> Accumulator<S> {
-    Accumulator::<S>::new(
-        Msm::new(&[C::default()], &[F::ONE], &BTreeMap::new()),
-        Msm::new(
-            &[C::default()],
-            &[F::ONE],
-            &fixed_base_names
-                .iter()
-                .map(|name| (name.clone(), F::ZERO))
-                .collect(),
-        ),
-    )
+/// The trivial (identity) accumulator over the given fixed base labels. This
+/// is the accumulator the IVC stream starts from.
+///
+/// The variable base of each side is the identity point with scalar 1: this
+/// is what an in-circuit `prepare` of an empty proof, scaled by the bit 0 and
+/// collapsed, evaluates to.
+pub fn trivial_acc(fixed_base_labels: &[PolynomialLabel]) -> Accumulator<S> {
+    Accumulator::<S>::trivial(fixed_base_labels)
 }
 
-pub fn fixed_bases_and_names(
-    vk_name: &str,
+/// The fixed bases of `vk` and their labels (sorted). With `Some(prefix)` the
+/// labels are prefixed, see [`fixed_bases::relabel`].
+pub fn fixed_bases_and_labels(
+    prefix: Option<&str>,
     vk: &VerifyingKey<F, KZGCommitmentScheme<E>>,
-) -> (BTreeMap<String, C>, Vec<String>) {
-    let mut fixed_bases = BTreeMap::new();
-    fixed_bases.extend(verifier::fixed_bases::<S>(vk_name, vk));
-    let fixed_base_names = fixed_bases.keys().cloned().collect::<Vec<_>>();
-    (fixed_bases, fixed_base_names)
-}
-
-pub fn fixed_base_names(vk_name: &str, cs: &ConstraintSystem<F>) -> Vec<String> {
-    let mut fixed_base_names: Vec<String> = vec![];
-    fixed_base_names.extend(verifier::fixed_base_names::<S>(
-        vk_name,
-        cs.num_fixed_columns() + cs.num_selectors(),
-        cs.permutation().columns.len(),
-    ));
-    fixed_base_names
+) -> (BTreeMap<PolynomialLabel, C>, Vec<PolynomialLabel>) {
+    let fixed_bases = fixed_bases::fixed_bases(prefix, vk);
+    let fixed_base_labels = fixed_bases.keys().cloned().collect::<Vec<_>>();
+    (fixed_bases, fixed_base_labels)
 }

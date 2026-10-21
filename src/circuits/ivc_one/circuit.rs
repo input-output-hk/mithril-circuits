@@ -57,6 +57,7 @@ impl IvcCircuit {
     pub fn unknown(cert_vk: &VerifyingKey<F, KZGCommitmentScheme<E>>) -> Self {
         let mut self_cs = ConstraintSystem::default();
         configure_ivc_circuit(&mut self_cs);
+        let self_cs = self_cs.into_finalized();
         let self_domain = EvaluationDomain::new(self_cs.degree() as u32, K);
 
         IvcCircuit {

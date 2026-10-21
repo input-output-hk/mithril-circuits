@@ -12,6 +12,7 @@ use num_traits::One;
 
 pub mod certificate;
 pub mod certificate_alba;
+pub mod fixed_bases;
 pub mod ivc;
 pub mod ivc_one;
 pub mod ivc_sd;
@@ -20,8 +21,15 @@ pub mod wrapper_tx;
 type F = JubjubBase;
 type C = Jubjub;
 
+/// Prefix applied (see [`fixed_bases::relabel`]) to the fixed-base labels of
+/// the certificate verifying key when its proofs are folded into an
+/// accumulator together with proofs of an IVC circuit.
 pub const CERT_VK_NAME: &str = "cert_vk";
+/// Name of the stake-distribution IVC verifying key. Its fixed bases keep the
+/// native `midnight-circuits` labels, so this is informational only.
 pub const IVC_SD_NAME: &str = "ivc_sd_vk";
+/// Name of the `ivc_one` verifying key. Its fixed bases keep the native
+/// `midnight-circuits` labels, so this is informational only.
 pub const IVC_ONE_NAME: &str = "ivc_one_vk";
 
 fn div_rem_native(
@@ -253,7 +261,6 @@ mod tests {
     use crate::{MidnightCircuit, PublicInputInstructions, Relation, Value, ZkStdLibArch};
     use midnight_proofs::dev::MockProver;
     use midnight_zk_stdlib as zk;
-    use midnight_zk_stdlib::utils::plonk_api::filecoin_srs;
 
     #[derive(Clone, Default)]
     pub struct TestCircuit;
@@ -300,6 +307,7 @@ mod tests {
                 curve25519: false,
                 bls12_381: false,
                 base64: false,
+                nb_arith_cols: 5,
                 nr_pow2range_cols: 2,
                 automaton: false,
                 blake2b: false,
@@ -318,13 +326,12 @@ mod tests {
     #[test]
     fn test_lower_than() {
         const K: u32 = 9;
-        let srs = filecoin_srs(K);
         let relation = TestCircuit;
 
         {
             let circuit = MidnightCircuit::from_relation(&relation, None);
             println!("k (optimal) {:?}", circuit.k());
-            println!("{:?}", zk::cost_model(&relation, None));
+            println!("{:?}", zk::cost_model(&relation, None, false));
         }
 
         {

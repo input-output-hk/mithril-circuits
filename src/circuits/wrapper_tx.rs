@@ -1,22 +1,20 @@
 use crate::{
-    Accumulator, ArithInstructions, AssertionInstructions, AssignedAccumulator,
-    AssignedForeignPoint, AssignedNative, AssignedVk, AssignmentInstructions, BinaryInstructions,
-    BlstrsEmulation, Circuit, CircuitCurve, ComposableChip, ConstraintSystem, EqualityInstructions,
-    Error, EvaluationDomain, FieldChip, ForeignEccChip, ForeignEccConfig, HashInstructions, Jubjub,
-    Layouter, NB_ARITH_COLS, NB_ARITH_FIXED_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS,
-    NativeChip, NativeConfig, NativeGadget, P2RDecompositionChip, P2RDecompositionConfig,
-    PoseidonChip, PoseidonConfig, Pow2RangeChip, PublicInputInstructions, SelfEmulation,
-    SimpleFloorPlanner, Value, VerifierGadget, nb_foreign_ecc_chip_columns,
-    schnorr_signature::VerificationKey as SchnorrVerificationKey, verifier,
+    Accumulator, ArithInstructions, AssertionInstructions, AssignedNative, AssignedVk,
+    AssignmentInstructions, BinaryInstructions, BlstrsEmulation, Circuit, CircuitCurve,
+    ComposableChip, ConstraintSystem, EqualityInstructions, Error, EvaluationDomain, FieldChip,
+    ForeignEccChip, ForeignEccConfig, HashInstructions, Layouter, NB_ARITH_COLS,
+    NB_ARITH_FIXED_COLS, NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, NativeChip, NativeConfig,
+    NativeGadget, P2RDecompositionChip, P2RDecompositionConfig, PoseidonChip, PoseidonConfig,
+    Pow2RangeChip, PublicInputInstructions, SelfEmulation, SimpleFloorPlanner, Value,
+    VerifierGadget, circuits::fixed_bases, nb_foreign_ecc_chip_columns,
+    schnorr_signature::VerificationKey as SchnorrVerificationKey,
 };
 
-use crate::circuits::{CERT_VK_NAME, IVC_SD_NAME};
+use crate::circuits::CERT_VK_NAME;
 use ff::Field;
-use halo2curves::group::Group;
 use midnight_circuits::hash::sha256::{
     NB_SHA256_ADVICE_COLS, NB_SHA256_FIXED_COLS, Sha256Chip, Sha256Config,
 };
-use std::collections::HashSet;
 
 type S = BlstrsEmulation;
 type F = <S as SelfEmulation>::F;
@@ -48,7 +46,11 @@ pub struct WrapperConfig {
 #[derive(Clone, Debug)]
 pub struct WrapperCircuit {
     // IVC stake distribution circuit
-    pub ivc_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
+    pub ivc_vk: (
+        EvaluationDomain<F>,
+        ConstraintSystem<F>,
+        Value<crate::VerifyingKey<F, crate::KZGCommitmentScheme<E>>>,
+    ), // (domain, finalized cs, vk)
     pub ivc_state: Value<F>,
     pub ivc_msg: Value<F>,
     pub ivc_merkle_root: Value<F>,
@@ -60,7 +62,11 @@ pub struct WrapperCircuit {
     pub genesis_vk: Value<SchnorrVerificationKey>,
     pub genesis_msg: Value<F>,
     // Tx certificate circuit
-    pub cert_vk: (EvaluationDomain<F>, ConstraintSystem<F>, Value<F>), // (domain, cs, vk_repr)
+    pub cert_vk: (
+        EvaluationDomain<F>,
+        ConstraintSystem<F>,
+        Value<crate::VerifyingKey<F, crate::KZGCommitmentScheme<E>>>,
+    ), // (domain, finalized cs, vk)
     pub cert_merkle_root: Value<F>,
     pub cert_msg: Value<F>,
     pub cert_proof: Value<Vec<u8>>,
@@ -95,8 +101,8 @@ pub fn configure_wrapper_circuit(meta: &mut ConstraintSystem<F>) -> WrapperConfi
     let native_config = NativeChip::configure(
         meta,
         &(
-            advice_columns[..NB_ARITH_COLS].try_into().unwrap(),
-            fixed_columns[..NB_ARITH_FIXED_COLS].try_into().unwrap(),
+            advice_columns[..NB_ARITH_COLS].to_vec(),
+            fixed_columns[..NB_ARITH_FIXED_COLS].to_vec(),
             [committed_instance_column, instance_column],
         ),
     );
@@ -169,9 +175,6 @@ impl Circuit<F> for WrapperCircuit {
         let sha256_chip = Sha256Chip::new(&config.sha256_config, &native_gadget);
         let verifier_chip: VerifierGadget<S> =
             VerifierGadget::new(&foreign_ecc_chip, &native_gadget, &poseidon_chip);
-
-        let id_point: AssignedForeignPoint<_, _, _> =
-            foreign_ecc_chip.assign_fixed(&mut layouter, C::identity())?;
 
         let [
             ivc_state,
@@ -290,58 +293,59 @@ impl Circuit<F> for WrapperCircuit {
         {
             // Assign for inner circuit proof verification
             let (cert_domain, cert_cs, cert_vk_value) = &self.cert_vk;
-            let assigned_cert_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
+            let assigned_cert_vk: AssignedVk<S> = fixed_bases::assign_vk(
                 &mut layouter,
-                CERT_VK_NAME,
+                &verifier_chip,
+                &native_gadget,
                 cert_domain,
                 cert_cs,
-                *cert_vk_value,
+                cert_vk_value.as_ref(),
             )?;
 
             let mut cert_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_cert_vk,
-                &[id_point.clone()],
-                &[&[cert_merkle_root, cert_msg.clone()]],
+                &[],
+                &[&[], &[cert_merkle_root, cert_msg.clone()]],
                 self.cert_proof.clone(),
             )?;
             cert_proof_acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
 
+            // Move the fixed bases of the certificate proof to the CERT_VK_NAME-prefixed
+            // labels so that they can be folded with the (natively labelled) fixed
+            // bases of the IVC proof (see the `fixed_bases` module).
+            let cert_fixed_base_labels = fixed_bases::fixed_base_labels(cert_cs);
+            let cert_proof_acc = fixed_bases::relabel_collapsed_acc(
+                &mut layouter,
+                &verifier_chip,
+                &foreign_ecc_chip,
+                &native_gadget,
+                CERT_VK_NAME,
+                &cert_fixed_base_labels,
+                &cert_proof_acc,
+            )?;
+
             // Assign for self-proof verification
             let (ivc_domain, ivc_cs, ivc_vk_value) = &self.ivc_vk;
-            let assigned_ivc_vk: AssignedVk<S> = verifier_chip.assign_vk_as_public_input(
+            let assigned_ivc_vk: AssignedVk<S> = fixed_bases::assign_vk(
                 &mut layouter,
-                IVC_SD_NAME,
+                &verifier_chip,
+                &native_gadget,
                 ivc_domain,
                 ivc_cs,
-                *ivc_vk_value,
+                ivc_vk_value.as_ref(),
             )?;
 
             // Update accumulator
             // Witness a proof and an accumulator that ensure the validity of `prev_state`.
             let ivc_acc = {
-                let mut fixed_base_names: Vec<String> = vec![];
-                fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    IVC_SD_NAME,
-                    ivc_cs.num_fixed_columns() + ivc_cs.num_selectors(),
-                    ivc_cs.permutation().columns.len(),
-                ));
-                fixed_base_names.extend(verifier::fixed_base_names::<S>(
-                    CERT_VK_NAME,
-                    cert_cs.num_fixed_columns() + cert_cs.num_selectors(),
-                    cert_cs.permutation().columns.len(),
-                ));
-                // Remove repeated names
-                let mut seen = HashSet::new();
-                fixed_base_names.retain(|x| seen.insert(x.clone()));
-                AssignedAccumulator::assign(
+                let fixed_base_labels = fixed_bases::combine_labels(&[
+                    &fixed_bases::fixed_base_labels(ivc_cs),
+                    &fixed_bases::relabel_all(CERT_VK_NAME, &cert_fixed_base_labels),
+                ]);
+                verifier_chip.assign_collapsed_accumulator(
                     &mut layouter,
-                    &foreign_ecc_chip,
-                    &native_gadget,
-                    1,
-                    1,
-                    &[],
-                    &fixed_base_names,
+                    &fixed_base_labels,
                     self.ivc_acc.clone(),
                 )?
             };
@@ -367,19 +371,14 @@ impl Circuit<F> for WrapperCircuit {
             let mut ivc_proof_acc = verifier_chip.prepare(
                 &mut layouter,
                 &assigned_ivc_vk,
-                &[id_point],
-                &[&assigned_pi],
+                &[],
+                &[&[], &assigned_pi],
                 self.ivc_proof.clone(),
             )?;
             ivc_proof_acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
 
-            let mut acc = AssignedAccumulator::<S>::accumulate(
-                &mut layouter,
-                &verifier_chip,
-                &native_gadget,
-                &poseidon_chip,
-                &[ivc_acc, ivc_proof_acc, cert_proof_acc],
-            )?;
+            let mut acc = verifier_chip
+                .accumulate(&mut layouter, &[ivc_acc, ivc_proof_acc, cert_proof_acc])?;
             acc.collapse(&mut layouter, &foreign_ecc_chip, &native_gadget)?;
             verifier_chip.constrain_as_public_input(&mut layouter, &acc)?;
         }
@@ -400,9 +399,9 @@ mod tests {
     };
     use crate::utils::jubjub_base_from_le_bytes;
     use crate::{
-        AssignedNative, AssignedNativePoint, Bls12, CircuitTranscript, Instantiable, JubjubBase,
-        KZGCommitmentScheme, MerkleRoot, Msg, Msm, ParamsKZG, PoseidonState, Transcript,
-        create_proof, keygen_pk, keygen_vk_with_k, prepare,
+        AssignedAccumulator, AssignedNative, AssignedNativePoint, Bls12, CircuitTranscript,
+        Instantiable, Jubjub, JubjubBase, KZGCommitmentScheme, MerkleRoot, Msg, ParamsKZG,
+        PoseidonState, Transcript, create_proof, keygen_pk, keygen_vk_with_k, prepare,
         schnorr_signature::{
             Signature as SchnorrSignature, SigningKey as SchnorrSigningKey,
             VerificationKey as SchnorrVerificationKey,
@@ -416,7 +415,6 @@ mod tests {
     use midnight_proofs::utils::SerdeFormat;
     use midnight_zk_stdlib as zk;
     use rand_core::OsRng;
-    use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::{BufReader, Cursor};
     use std::time::Instant;
@@ -634,21 +632,14 @@ mod tests {
         let duration = start.elapsed(); // Measure the elapsed time after proof generation.
         println!("Certificate circuit vk pk generation took: {:?}", duration);
 
-        let mut cert_fixed_bases = BTreeMap::new();
-        cert_fixed_bases.extend(verifier::fixed_bases::<S>(CERT_VK_NAME, &cert_vk.vk()));
-        let cert_fixed_base_names = cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
+        // Fixed bases of the certificate vk with their native labels (to convert
+        // dual MSMs into accumulators) and with CERT_VK_NAME-prefixed labels (as
+        // they are folded into the IVC accumulator, see the `fixed_bases` module).
+        let cert_native_fixed_bases = fixed_bases::fixed_bases(None, cert_vk.vk());
+        let cert_fixed_bases = fixed_bases::fixed_bases(Some(CERT_VK_NAME), cert_vk.vk());
+        let cert_fixed_base_labels = cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
 
-        let cert_trivial_acc = Accumulator::<S>::new(
-            Msm::new(&[C::default()], &[F::ONE], &BTreeMap::new()),
-            Msm::new(
-                &[C::default()],
-                &[F::ONE],
-                &cert_fixed_base_names
-                    .iter()
-                    .map(|name| (name.clone(), F::ZERO))
-                    .collect(),
-            ),
-        );
+        let cert_trivial_acc = Accumulator::<S>::trivial(&cert_fixed_base_labels);
 
         let start = Instant::now();
         let cert_proof = zk::prove::<Certificate, PoseidonState<F>>(
@@ -669,24 +660,29 @@ mod tests {
                     CircuitTranscript::<PoseidonState<F>>::init_from_bytes(&cert_proof);
                 prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<PoseidonState<F>>>(
                     cert_vk.vk(),
-                    &[&[C::identity()]],
-                    &[&[&tx_instance]],
+                    &[],
+                    &[&[], &tx_instance],
                     &mut transcript,
                 )
                 .expect("Problem preparing the certificate proof")
             };
             assert!(cert_dual_msm.clone().check(&cert_srs.verifier_params()));
 
-            let mut cert_acc =
-                Accumulator::<S>::from_dual_msm(cert_dual_msm, CERT_VK_NAME, &cert_fixed_bases);
+            // Convert the dual MSM into a collapsed accumulator whose fixed bases carry
+            // the CERT_VK_NAME-prefixed labels (collapsed before re-labelling, as in circuit)
+            let cert_acc = fixed_bases::collapsed_relabeled_acc(
+                CERT_VK_NAME,
+                cert_dual_msm,
+                &cert_native_fixed_bases,
+            );
             assert!(cert_acc.check(&cert_srs.verifier_params(), &cert_fixed_bases));
-            cert_acc.collapse();
             cert_acc
         };
 
         //Set up ivc circuit
         let mut ivc_cs = ConstraintSystem::default();
         configure_ivc_circuit(&mut ivc_cs);
+        let ivc_cs = ivc_cs.into_finalized();
         let ivc_domain = EvaluationDomain::new(ivc_cs.degree() as u32, K);
 
         let default_ivc_circuit = IvcCircuit {
@@ -704,7 +700,7 @@ mod tests {
             inner_vk: (
                 cert_vk.vk().get_domain().clone(),
                 cert_vk.vk().cs().clone(),
-                Value::known(cert_vk.vk().transcript_repr()),
+                Value::known(cert_vk.vk().clone()),
             ),
             inner_merkle_root: Value::unknown(),
             inner_proof: Value::unknown(),
@@ -713,7 +709,7 @@ mod tests {
         };
 
         {
-            let circuit_model = circuit_model::<_, 48, 32>(&default_ivc_circuit);
+            let circuit_model = circuit_model::<_, KZGCommitmentScheme<E>>(&default_ivc_circuit, 0);
             println!("IVC circuit {:?}", circuit_model);
         }
 
@@ -730,40 +726,29 @@ mod tests {
             println!("ivc_with_inner vk length {:?}", buffer.get_ref().len());
         }
 
-        let mut ivc_fixed_bases = BTreeMap::new();
-        ivc_fixed_bases.extend(verifier::fixed_bases::<S>(IVC_SD_NAME, &ivc_vk));
-        let ivc_fixed_base_names = ivc_fixed_bases.keys().cloned().collect::<Vec<_>>();
+        // Fixed bases of the IVC vk keep their native labels
+        let ivc_fixed_bases = fixed_bases::fixed_bases(None, &ivc_vk);
+        let ivc_fixed_base_labels = ivc_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
-            "IVC fixed base name length {:?}",
-            ivc_fixed_base_names.len()
+            "IVC fixed base label length {:?}",
+            ivc_fixed_base_labels.len()
         );
 
-        let mut ivc_cert_fixed_bases = BTreeMap::new();
-        ivc_cert_fixed_bases.extend(cert_fixed_bases.clone());
-        ivc_cert_fixed_bases.extend(ivc_fixed_bases.clone());
-        let ivc_cert_fixed_base_names = ivc_cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
+        let ivc_cert_fixed_bases =
+            fixed_bases::combine_fixed_bases(&[&cert_fixed_bases, &ivc_fixed_bases]);
+        let ivc_cert_fixed_base_labels = ivc_cert_fixed_bases.keys().cloned().collect::<Vec<_>>();
         println!(
-            "Combined fixed base name length {:?}",
-            ivc_cert_fixed_base_names.len()
+            "Combined fixed base label length {:?}",
+            ivc_cert_fixed_base_labels.len()
         );
 
-        let ivc_acc = Accumulator::<S>::new(
-            Msm::new(&[C::default()], &[F::ONE], &BTreeMap::new()),
-            Msm::new(
-                &[C::default()],
-                &[F::ONE],
-                &ivc_cert_fixed_base_names
-                    .iter()
-                    .map(|name| (name.clone(), F::ZERO))
-                    .collect(),
-            ),
-        );
+        let ivc_acc = Accumulator::<S>::trivial(&ivc_cert_fixed_base_labels);
 
         let ivc_circuit = IvcCircuit {
             self_vk: (
                 ivc_domain.clone(),
                 ivc_cs.clone(),
-                Value::known(ivc_vk.transcript_repr()),
+                Value::known(ivc_vk.clone()),
             ),
             prev_state: Value::known(F::ZERO),
             prev_msg: Value::known(F::ZERO),
@@ -778,7 +763,7 @@ mod tests {
             inner_vk: (
                 cert_vk.vk().get_domain().clone(),
                 cert_vk.vk().cs().clone(),
-                Value::known(cert_vk.vk().transcript_repr()),
+                Value::known(cert_vk.vk().clone()),
             ),
             inner_merkle_root: Value::known(tx_merkle_root),
             inner_msg: Value::known(tx_msg),
@@ -795,7 +780,7 @@ mod tests {
             AssignedNative::<F>::as_public_input(&F::ZERO),
             AssignedNative::<F>::as_public_input(&genesis_next_merkle_root),
             AssignedNative::<F>::as_public_input(&F::from(genesis_epoch)),
-            AssignedVk::<S>::as_public_input(&cert_vk.vk()),
+            AssignedVk::<S>::as_public_input(cert_vk.vk()),
             AssignedVk::<S>::as_public_input(&ivc_vk),
             AssignedAccumulator::as_public_input(&ivc_acc),
         ]
@@ -814,9 +799,9 @@ mod tests {
             >(
                 &srs,
                 &ivc_pk,
-                &[ivc_circuit.clone()],
-                1,
-                &[&[&[], &public_inputs]],
+                &ivc_circuit,
+                0,
+                &[&[], &public_inputs],
                 &mut transcript,
                 OsRng,
             );
@@ -835,8 +820,8 @@ mod tests {
             let dual_msm =
                 prepare::<F, KZGCommitmentScheme<E>, CircuitTranscript<PoseidonState<F>>>(
                     &ivc_vk,
-                    &[&[C::identity()]],
-                    &[&[&public_inputs]],
+                    &[],
+                    &[&[], &public_inputs],
                     &mut transcript,
                 )
                 .expect("Verification failed");
@@ -844,8 +829,7 @@ mod tests {
             let duration = start.elapsed(); // Measure the elapsed time after proof generation.
             println!("IVC proof verification took: {:?}", duration);
 
-            let mut proof_acc =
-                Accumulator::<S>::from_dual_msm(dual_msm, IVC_SD_NAME, &ivc_fixed_bases);
+            let mut proof_acc = Accumulator::<S>::from_dual_msm(dual_msm, &ivc_fixed_bases);
             proof_acc.collapse();
             proof_acc
         };
@@ -855,7 +839,7 @@ mod tests {
             ivc_vk: (
                 ivc_domain.clone(),
                 ivc_cs.clone(),
-                Value::known(ivc_vk.transcript_repr()),
+                Value::known(ivc_vk.clone()),
             ),
             ivc_state: Value::known(F::ONE),
             ivc_msg: Value::known(genesis_msg),
@@ -869,7 +853,7 @@ mod tests {
             cert_vk: (
                 cert_vk.vk().get_domain().clone(),
                 cert_vk.vk().cs().clone(),
-                Value::known(cert_vk.vk().transcript_repr()),
+                Value::known(cert_vk.vk().clone()),
             ),
             cert_merkle_root: Value::known(tx_merkle_root),
             cert_msg: Value::known(tx_msg),
@@ -878,7 +862,7 @@ mod tests {
         };
 
         {
-            let circuit_model = circuit_model::<_, 48, 32>(&wrapper_circuit);
+            let circuit_model = circuit_model::<_, KZGCommitmentScheme<E>>(&wrapper_circuit, 0);
             println!("\nWrapper circuit {:?}", circuit_model);
         }
 
@@ -921,7 +905,7 @@ mod tests {
             AssignedNative::<F>::as_public_input(&genesis_msg),
             AssignedNativePoint::<Jubjub>::as_public_input(&genesis_vk.0),
             AssignedNative::<F>::as_public_input(&F::from(tx_epoch)),
-            AssignedVk::<S>::as_public_input(&cert_vk.vk()),
+            AssignedVk::<S>::as_public_input(cert_vk.vk()),
             AssignedVk::<S>::as_public_input(&ivc_vk),
             AssignedAccumulator::as_public_input(&wrapper_acc),
         ]
@@ -942,9 +926,9 @@ mod tests {
             >(
                 &srs,
                 &wrapper_pk,
-                &[wrapper_circuit.clone()],
-                1,
-                &[&[&[], &wrapper_public_inputs]],
+                &wrapper_circuit,
+                0,
+                &[&[], &wrapper_public_inputs],
                 &mut transcript,
                 OsRng,
             );
@@ -972,8 +956,8 @@ mod tests {
                         CircuitTranscript<blake2b_simd::State>,
                     >(
                         &wrapper_vk,
-                        &[&[C::identity()]],
-                        &[&[&wrapper_public_inputs]],
+                        &[],
+                        &[&[], &wrapper_public_inputs],
                         &mut transcript,
                     )
                     .expect("Verification failed");

@@ -386,6 +386,7 @@ impl Relation for Certificate {
             curve25519: false,
             bls12_381: false,
             base64: false,
+            nb_arith_cols: 5,
             nr_pow2range_cols: 2,
             automaton: false,
             blake2b: false,
@@ -593,7 +594,7 @@ mod tests {
         {
             let circuit = MidnightCircuit::from_relation(&relation, None);
             println!("k (optimal) {:?}", circuit.k());
-            println!("{:?}", zk::cost_model(&relation, None));
+            println!("{:?}", zk::cost_model(&relation, None, false));
         }
 
         let start = Instant::now();

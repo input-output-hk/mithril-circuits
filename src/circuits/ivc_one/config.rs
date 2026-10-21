@@ -48,8 +48,8 @@ pub fn configure_ivc_circuit(meta: &mut ConstraintSystem<F>) -> IvcConfig {
     let native_config = NativeChip::configure(
         meta,
         &(
-            advice_columns[..NB_ARITH_COLS].try_into().unwrap(),
-            fixed_columns[..NB_ARITH_FIXED_COLS].try_into().unwrap(),
+            advice_columns[..NB_ARITH_COLS].to_vec(),
+            fixed_columns[..NB_ARITH_FIXED_COLS].to_vec(),
             [committed_instance_column, instance_column],
         ),
     );
