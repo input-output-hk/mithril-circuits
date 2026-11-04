@@ -220,14 +220,6 @@ Reused across relations:
   (`assert_equal_parity`) that, _because the field modulus is odd_, forces the decomposition to
   be unique. **Do not "simplify" this** — the parity trick is what closes the soundness gap.
   It assumes `lower_than` range-checks _both_ of its operands to the given bit width.
-- `div_rem_native`, `is_divisible_by_base` — native division/divisibility used by ALBA.
-
-### 5.4 Alternative / experimental circuits
-
-- `ivc_with_inner.rs`: an earlier IVC experiment, not compiled into the library.
-  **`ivc_one` is the current, canonical IVC.**
-- `alba.rs` — Approximate Lower Bound Arguments (telescope) sampling, an alternative to a fixed
-  quorum.
 
 ---
 

@@ -1,4 +1,3 @@
-pub mod alba;
 pub mod circuits;
 pub mod lottery;
 pub mod merkle_tree;
@@ -107,9 +106,6 @@ pub const DST_MERKLE_NODE: JubjubBase = JubjubBase::from_raw([1, 1, 0, 0]);
 pub const DST_UNIQUE_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 2, 0, 0]);
 pub const DST_SCHNORR_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 3, 0, 0]);
 pub const DST_LOTTERY: JubjubBase = JubjubBase::from_raw([3, 3, 0, 0]);
-pub const DST_ALBA_ROUND: JubjubBase = JubjubBase::from_raw([4, 4, 0, 0]);
-pub const DST_ALBA_BIN: JubjubBase = JubjubBase::from_raw([4, 5, 0, 0]);
-pub const DST_ALBA_FINAL: JubjubBase = JubjubBase::from_raw([4, 6, 0, 0]);
 pub const DST_PERMUTATION: JubjubBase = JubjubBase::from_raw([5, 5, 0, 0]);
 
 #[cfg(test)]
@@ -124,9 +120,6 @@ mod tests {
             DST_UNIQUE_SIGNATURE,
             DST_SCHNORR_SIGNATURE,
             DST_LOTTERY,
-            DST_ALBA_ROUND,
-            DST_ALBA_BIN,
-            DST_ALBA_FINAL,
             DST_PERMUTATION,
         ];
 

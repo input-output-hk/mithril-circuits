@@ -2,13 +2,9 @@ use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
     AssignedScalarOfNativeCurve, AssignmentInstructions, BinaryInstructions,
     ControlFlowInstructions, DecompositionInstructions, EccInstructions, EqualityInstructions,
-    Error, Jubjub, JubjubBase, Layouter, RangeCheckInstructions, ZkStdLib,
-    utils::{big_to_fe, fe_to_big, split},
+    Error, Jubjub, JubjubBase, Layouter, ZkStdLib, utils::split,
 };
 use ff::{Field, PrimeField};
-use num_bigint::BigUint;
-use num_integer::Integer;
-use num_traits::One;
 
 pub mod certificate;
 pub mod fixed_bases;
@@ -24,63 +20,6 @@ pub const CERT_VK_NAME: &str = "cert_vk";
 /// Name of the `ivc_one` verifying key. Its fixed bases keep the native
 /// `midnight-circuits` labels, so this is informational only.
 pub const IVC_ONE_NAME: &str = "ivc_one_vk";
-
-fn div_rem_native(
-    std_lib: &ZkStdLib,
-    layouter: &mut impl Layouter<F>,
-    x: &AssignedNative<F>,
-    x_size_bound: u32,
-    base: u32,
-) -> Result<(AssignedNative<F>, AssignedNative<F>), Error> {
-    assert!(x_size_bound < F::NUM_BITS);
-
-    let base_big = BigUint::from(base);
-    let (q_value, r_value) = x
-        .value()
-        .map(|v| {
-            let (q, r) = fe_to_big(*v).div_rem(&base_big);
-            (big_to_fe(q), big_to_fe(r))
-        })
-        .unzip();
-    let q_bound = ((BigUint::one() << x_size_bound) + &base) / &base;
-    let q = std_lib.assign_lower_than_fixed(layouter, q_value, &q_bound)?;
-    let r = std_lib.assign_lower_than_fixed(layouter, r_value, &base_big)?;
-
-    let q_times_base_plus_r = std_lib.linear_combination(
-        layouter,
-        &[(F::from(base as u64), q.clone()), (F::ONE, r.clone())],
-        F::ZERO,
-    )?;
-    std_lib.assert_equal(layouter, x, &q_times_base_plus_r)?;
-
-    Ok((q, r))
-}
-
-// Check if x = 0 mod n
-fn is_divisible_by_base(
-    std_lib: &ZkStdLib,
-    layouter: &mut impl Layouter<F>,
-    x: &AssignedNative<F>,
-    x_size_bound: u32,
-    base: u32,
-) -> Result<AssignedNative<F>, Error> {
-    assert!(x_size_bound < F::NUM_BITS);
-
-    let base_big = BigUint::from(base);
-    let q_value = x.value().map(|v| {
-        let (q, _) = fe_to_big(*v).div_rem(&base_big);
-        big_to_fe(q)
-    });
-
-    let q_bound = ((BigUint::one() << x_size_bound) + &base) / &base;
-    let q = std_lib.assign_lower_than_fixed(layouter, q_value, &q_bound)?;
-
-    let q_times_base =
-        std_lib.linear_combination(layouter, &[(F::from(base as u64), q.clone())], F::ZERO)?;
-    std_lib.assert_equal(layouter, x, &q_times_base)?;
-
-    Ok(q)
-}
 
 fn assert_equal_parity(
     std_lib: &ZkStdLib,

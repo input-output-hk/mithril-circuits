@@ -91,7 +91,6 @@ src/
   merkle_tree.rs              Poseidon Merkle tree over signer registrations
   lottery.rs                  stake → target conversion + eligibility check
   protocol_message.rs         Mithril ProtocolMessage → SHA-256 digest → field element
-  alba.rs                     ALBA (telescope) sampling — alternative aggregation
   utils.rs                    field / bigint / curve helpers
   circuits/
     mod.rs                    shared in-circuit gadgets (merkle path, signature, lottery, cmp)
