@@ -11,12 +11,8 @@ use num_integer::Integer;
 use num_traits::One;
 
 pub mod certificate;
-pub mod certificate_alba;
 pub mod fixed_bases;
-pub mod ivc;
 pub mod ivc_one;
-pub mod ivc_sd;
-pub mod wrapper_tx;
 
 type F = JubjubBase;
 type C = Jubjub;
@@ -25,9 +21,6 @@ type C = Jubjub;
 /// the certificate verifying key when its proofs are folded into an
 /// accumulator together with proofs of an IVC circuit.
 pub const CERT_VK_NAME: &str = "cert_vk";
-/// Name of the stake-distribution IVC verifying key. Its fixed bases keep the
-/// native `midnight-circuits` labels, so this is informational only.
-pub const IVC_SD_NAME: &str = "ivc_sd_vk";
 /// Name of the `ivc_one` verifying key. Its fixed bases keep the native
 /// `midnight-circuits` labels, so this is informational only.
 pub const IVC_ONE_NAME: &str = "ivc_one_vk";

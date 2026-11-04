@@ -224,8 +224,7 @@ Reused across relations:
 
 ### 5.4 Alternative / experimental circuits
 
-- `certificate_alba.rs` — ALBA-based aggregation, an alternative certificate relation.
-- `ivc.rs`, `ivc_sd.rs`, `ivc_with_inner.rs`, `wrapper_tx.rs` — earlier IVC experiments.
+- `ivc_with_inner.rs`: an earlier IVC experiment, not compiled into the library.
   **`ivc_one` is the current, canonical IVC.**
 - `alba.rs` — Approximate Lower Bound Arguments (telescope) sampling, an alternative to a fixed
   quorum.

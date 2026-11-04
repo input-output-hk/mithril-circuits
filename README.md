@@ -60,10 +60,6 @@ SNARK proof plus an accumulator. Its contributions are:
 
 More details can be found in sections of [`DESIGN.md`](./DESIGN.md), which documents the architecture and cryptographic design in full.
 
-This repository is the **research prototype**: it is where the SNARK-friendly Mithril design was first
-worked out. The **production** implementation, which builds on the design prototyped here, lives
-in the main Mithril repository under
-[`mithril-stm/src/circuits`](https://github.com/input-output-hk/mithril/tree/main/mithril-stm/src/circuits).
 
 ## How it works, in one picture
 
@@ -129,29 +125,3 @@ cargo build --release
 cargo test  --release <substring> -- --nocapture     # e.g. certificate_small, test_ivc_one
 ```
 
-
-## License
-
-Copyright 2025 Input Output Global
-
-Licensed under the Apache License, Version 2.0 (the "License"). You may not use this repository except in compliance
-with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an
-"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific
-language governing permissions and limitations under the License
-
-## Citation
-
-If you use this repository or the design it proposes, please cite it. GitHub renders a
-**"Cite this repository"** button from [`CITATION.cff`](./CITATION.cff) (with ready-to-copy
-BibTeX and APA). A BibTeX entry:
-
-```bibtex
-@misc{mithril_circuits,
-  title        = {Mithril snarkification: a SNARK-friendly variant of the Mithril multi-signature protocol},
-  author       = {Jia Liu and Raphael Toledo},
-  howpublished = {\url{https://github.com/input-output-hk/mithril-circuits}},
-  year         = {2025}
-}
-```
