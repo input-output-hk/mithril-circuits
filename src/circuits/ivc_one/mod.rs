@@ -488,6 +488,34 @@ mod tests {
                 proof_acc
             };
 
+            if i < NUM_CERT - 1 {
+                // Fully verify this Poseidon proof and the accumulator bound to
+                // its public inputs, before folding obligations for the next step.
+                // Match the terminal Blake2b benchmark, including public-input
+                // construction and both pairing checks in every iteration.
+                let total = 100;
+                let start = Instant::now();
+                for _ in 0..total {
+                    let public_inputs = [
+                        global.as_public_input(),
+                        ivc_next_states[i].as_public_input(),
+                        AssignedAccumulator::as_public_input(&next_acc),
+                    ]
+                    .concat();
+                    let dual_msm =
+                        verify_prepare!(PoseidonState<F>, &proof, &self_vk, &public_inputs);
+                    assert!(dual_msm.clone().check(&srs_verifier));
+                    assert!(
+                        next_acc.check(&srs_verifier, &combined_fixed_bases),
+                        "Poseidon IVC acc verification failed"
+                    );
+                }
+                println!(
+                    "IVC full verification: step={i} transcript=Poseidon repetitions={total} mean={:?}",
+                    start.elapsed() / total
+                );
+            }
+
             // Update state and accumulator
             state = ivc_next_states[i].clone();
             acc = next_acc.clone();

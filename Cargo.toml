@@ -60,19 +60,7 @@ truncated-challenges = []
 midnight-proofs = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
 midnight-curves = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
 midnight-circuits = { git = "https://github.com/midnightntwrk/midnight-zk", branch = "main" }
-#
-# Alternatives for the 2.3.5-based release line (also switch [dependencies]
-# back to crates.io versions 7.2.4 / 0.3.1 / 0.8.2 / 2.3.5):
-# kitounliu/midnight-zk fork, branch kitoun@msm-blst-no-threshold-v2:
-# midnight-proofs = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-# midnight-curves = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-# midnight-circuits = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-# midnight-zk-stdlib = { git = "https://github.com/kitounliu/midnight-zk", branch = "kitoun@msm-blst-no-threshold-v2" }
-# Local checkout (sibling directory):
-# midnight-proofs = { path = "../midnight-zk/proofs" }
-# midnight-curves = { path = "../midnight-zk/curves" }
-# midnight-circuits = { path = "../midnight-zk/circuits" }
-# midnight-zk-stdlib = { path = "../midnight-zk/zk_stdlib" }
+
 
 [[bench]]
 name = "signature"

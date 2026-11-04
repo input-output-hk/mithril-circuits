@@ -255,7 +255,7 @@ mod tests {
         params
     }
 
-    fn run_certificate_case(case_name: &str, k: u32, quorum: u32) {
+    fn run_certificate_case(case_name: &str, k: u32, quorum: u32, find_optimal_k: bool) {
         // let srs = filecoin_srs(k);
         let srs = open(k);
 
@@ -269,12 +269,15 @@ mod tests {
 
         {
             // Print circuit sizing information.
-            let circuit = MidnightCircuit::from_relation(&relation, None);
             println!("\n=== Certificate case: {case_name} ===");
             println!("k (selected) {k}");
             println!("quorum {quorum}");
-            println!("k (optimal) {:?}", circuit.k());
-            println!("{:?}", zk::cost_model(&relation, None, false));
+            if find_optimal_k {
+                let circuit = MidnightCircuit::from_relation(&relation, None);
+                println!("k (optimal) {:?}", circuit.k());
+            }
+            // Benchmark the requested layout without repeating the optimal-k search.
+            println!("{:?}", zk::cost_model(&relation, Some(k), false));
         }
 
         let start = Instant::now();
@@ -342,20 +345,44 @@ mod tests {
     fn test_certificate_small() {
         const K: u32 = 13;
         const QUORUM: u32 = 3;
-        run_certificate_case("small", K, QUORUM);
+        run_certificate_case("small", K, QUORUM, true);
     }
 
     #[test]
     fn test_certificate_medium() {
         const K: u32 = 16;
         const QUORUM: u32 = 32;
-        run_certificate_case("medium", K, QUORUM);
+        run_certificate_case("medium", K, QUORUM, true);
     }
 
     #[test]
     fn test_certificate_large() {
         const K: u32 = 21;
         const QUORUM: u32 = 1024;
-        run_certificate_case("large", K, QUORUM);
+        run_certificate_case("large", K, QUORUM, true);
+    }
+
+    #[test]
+    #[ignore = "large certificate benchmark; requires k=19 KZG parameters"]
+    fn benchmark_certificate_q256_k19() {
+        run_certificate_case("q256_k19", 19, 256, false);
+    }
+
+    #[test]
+    #[ignore = "large certificate benchmark; requires k=20 KZG parameters"]
+    fn benchmark_certificate_q512_k20() {
+        run_certificate_case("q512_k20", 20, 512, false);
+    }
+
+    #[test]
+    #[ignore = "large certificate benchmark; requires k=21 KZG parameters"]
+    fn benchmark_certificate_q1024_k21() {
+        run_certificate_case("q1024_k21", 21, 1024, false);
+    }
+
+    #[test]
+    #[ignore = "large certificate benchmark; requires k=22 KZG parameters"]
+    fn benchmark_certificate_q1944_k22() {
+        run_certificate_case("q1944_k22", 22, 1944, false);
     }
 }
