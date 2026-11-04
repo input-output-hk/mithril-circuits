@@ -359,7 +359,8 @@ public-input scheme. The IVC circuit's `K = 19` is fixed and assumes the
   `midnight-proofs`. It changes verifier-key hashes and proof layout, so all cached VKs and `k`
   sizings assume it is on. Keep it on; the IVC's fixed `K = 19` depends on it.
 - **KZG params are a prerequisite.** Circuit tests read
-  `examples/assets/params_kzg_unsafe_<k>` (empty on fresh checkout). `src/main.rs` takes `k` as a
+  `examples/assets/params_kzg_unsafe_<k>` (generated locally). `src/main.rs` creates the directory
+  automatically and takes `k` as a
   command-line argument, so generate with `cargo run --release -- <k>` (e.g.
   `cargo run --release -- 13`). Some tests use `filecoin_srs(k)` instead and need no local file.
   `<k>` is the log₂ circuit size; each test declares its own `K` and needs the matching file.

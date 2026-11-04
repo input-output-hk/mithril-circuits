@@ -105,9 +105,9 @@ benches/                      criterion benchmarks (signature, bls)
 ### KZG parameters (prerequisite for most tests)
 
 Circuit tests read a structured reference string (SRS) from
-`examples/assets/params_kzg_unsafe_<k>`, where `<k>` is the log₂ circuit size (rows = 2^k). This
-directory is empty on a fresh checkout, so generate the params first. `src/main.rs` takes `k` as
-a command-line argument:
+`examples/assets/params_kzg_unsafe_<k>`, where `<k>` is the log₂ circuit size (rows = 2^k).
+Generate the params first; the generator creates this directory automatically.
+`src/main.rs` takes `k` as a command-line argument:
 
 ```bash
 cargo run --release -- <k>            # e.g. `cargo run --release -- 13`

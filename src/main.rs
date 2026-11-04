@@ -8,6 +8,7 @@ use midnight_proofs::utils::SerdeFormat;
 use mithril_circuits::Bls12;
 
 fn create(k: u32) {
+    std::fs::create_dir_all("examples/assets").expect("Failed to create parameter directory");
     let path = format!("examples/assets/params_kzg_unsafe_{}", k);
     // Step 1: Create an instance of ParamsKZG
     let params: ParamsKZG<Bls12> = ParamsKZG::unsafe_setup(k, OsRng);
