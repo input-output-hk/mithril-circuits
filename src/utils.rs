@@ -1,10 +1,15 @@
-use crate::{EDWARDS_D, Jubjub, JubjubAffine, JubjubBase, JubjubScalar, JubjubSubgroup};
-use ff::{Field, PrimeField};
+//! Field encodings and integer decompositions for native and witness calculations.
+//!
+//! These helpers run on the host. Circuit callers must separately constrain
+//! any assigned values derived from their results.
+
+use crate::{Jubjub, JubjubAffine, JubjubBase, JubjubScalar, JubjubSubgroup};
+use ff::PrimeField;
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{Num, One, Zero};
-use subtle::{Choice, ConstantTimeEq};
 
+/// Returns the affine Edwards `(x, y)` coordinates of a subgroup point.
 pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
     let extended: Jubjub = point.into(); // Convert to JubjubExtended
     let affine: JubjubAffine = extended.into(); // Convert to JubjubAffine (affine coordinates)
@@ -13,6 +18,10 @@ pub fn get_coordinates(point: JubjubSubgroup) -> (JubjubBase, JubjubBase) {
     (x, y)
 }
 
+/// Reduces a base-field element's canonical integer modulo the scalar modulus.
+///
+/// Native signature verification uses this to interpret a Poseidon challenge
+/// as a scalar for curve multiplication.
 pub fn jubjub_base_to_scalar(x: JubjubBase) -> JubjubScalar {
     let bytes = x.to_bytes_le();
     JubjubScalar::from_raw([
@@ -23,6 +32,14 @@ pub fn jubjub_base_to_scalar(x: JubjubBase) -> JubjubScalar {
     ])
 }
 
+/// Interprets 32 little-endian bytes as an integer and reduces it modulo the field.
+///
+/// This is a reducing conversion, not a canonical-encoding check. Use
+/// [`JubjubBase::from_bytes_le`] when noncanonical encodings must be rejected.
+///
+/// # Panics
+///
+/// Panics if the input is not exactly 32 bytes.
 pub fn jubjub_base_from_le_bytes(bytes: &[u8]) -> JubjubBase {
     assert_eq!(bytes.len(), 32);
     JubjubBase::from_raw([
@@ -33,23 +50,11 @@ pub fn jubjub_base_from_le_bytes(bytes: &[u8]) -> JubjubBase {
     ])
 }
 
-pub fn is_on_curve(u: JubjubBase, v: JubjubBase) -> Choice {
-    let u2 = u.square();
-    let v2 = v.square();
-
-    // Left-hand side: v² - u²
-    let lhs = v2 - u2;
-
-    // Right-hand side: 1 + EDWARDS_D * (u² * v²)
-    let rhs = JubjubBase::ONE + EDWARDS_D * u2 * v2;
-
-    // Compare in constant time
-    lhs.ct_eq(&rhs)
-}
-
-/// Breaks the given `value` into `nb_limbs` limbs representing the value in the
-/// given `base` (in little-endian).
-/// Panics if the conversion is not possible.
+/// Decomposes an integer into exactly `nb_limbs` digits in little-endian order.
+///
+/// # Panics
+///
+/// Panics if `base` is zero or the value does not fit in the requested limbs.
 pub fn big_to_limbs(nb_limbs: u32, base: &BigUint, value: &BigUint) -> Vec<BigUint> {
     let mut output = vec![];
     let mut q = (*value).clone();
@@ -67,20 +72,25 @@ pub fn big_to_limbs(nb_limbs: u32, base: &BigUint, value: &BigUint) -> Vec<BigUi
     output
 }
 
+/// Reads a prime field's modulus from its `0x`-prefixed hexadecimal constant.
 pub fn modulus<F: PrimeField>() -> BigUint {
     BigUint::from_str_radix(&F::MODULUS[2..], 16).unwrap()
 }
 
+/// Reduces a nonnegative integer modulo the field modulus before conversion.
 pub fn big_to_fe<F: PrimeField>(e: BigUint) -> F {
     let modulus = modulus::<F>();
     let e = e % modulus;
     F::from_str_vartime(&e.to_str_radix(10)[..]).unwrap()
 }
 
-pub fn fe_to_big<F: PrimeField>(fe: F) -> BigUint {
-    BigUint::from_bytes_le(fe.to_repr().as_ref())
-}
-
+/// Splits a canonical field representative into little-endian fixed-width limbs.
+///
+/// The vector contains only the required limbs; zero yields an empty vector.
+///
+/// # Panics
+///
+/// Panics if `limb_bits` is zero.
 pub fn decompose<F: PrimeField>(value: &F, limb_bits: usize) -> Vec<F> {
     let value_big = BigUint::from_bytes_le(value.to_repr().as_ref());
     let nb_limbs = value_big.bits().div_ceil(limb_bits as u64) as u32;
@@ -90,6 +100,10 @@ pub fn decompose<F: PrimeField>(value: &F, limb_bits: usize) -> Vec<F> {
         .collect()
 }
 
+/// Returns low and high parts of a field element's canonical integer.
+///
+/// The low part contains `num_bits` bits and the high part is the remaining
+/// quotient, so `value = low + 2^num_bits * high` as integers.
 pub fn split<F: PrimeField>(value: &F, num_bits: u32) -> (F, F) {
     let value_big = BigUint::from_bytes_le(value.to_repr().as_ref());
     let lower_mask = (BigUint::one() << num_bits) - BigUint::one(); // Create a mask for n bits
@@ -103,7 +117,9 @@ pub fn split<F: PrimeField>(value: &F, num_bits: u32) -> (F, F) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ff::Field;
     use rand_core::OsRng;
+    use subtle::ConstantTimeEq;
 
     #[test]
     fn test_decompose() {
@@ -115,7 +131,7 @@ mod tests {
         let mut reconstructed = JubjubBase::ZERO;
         let base = JubjubBase::from_u128(1_u128 << limb_bits);
         for (i, limb) in limbs.iter().enumerate() {
-            reconstructed += base.pow_vartime(&[i as u64]) * limb;
+            reconstructed += base.pow_vartime([i as u64]) * limb;
         }
         assert_eq!(
             reconstructed.ct_eq(&ran).unwrap_u8(),

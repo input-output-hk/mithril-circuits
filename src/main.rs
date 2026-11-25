@@ -1,41 +1,40 @@
+//! Generates local KZG parameters and reads them back to check serialization.
+//!
+//! Run `cargo run --release -- <k>` from the crate directory. Output goes to
+//! `examples/assets/params_kzg_unsafe_<k>`; the directory is created as needed.
+//! An existing file is replaced after the new parameters have been flushed and
+//! reloaded successfully. Parameters use `unsafe_setup` for tests and benchmarks.
+
 use rand::rngs::OsRng;
 use std::env;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::fs::{self, File};
+use std::io::{self, BufReader, BufWriter, Write};
 
 use midnight_proofs::poly::kzg::params::ParamsKZG;
 use midnight_proofs::utils::SerdeFormat;
-use mithril_circuits::Bls12;
+use snark_stms::Bls12;
 
-fn create(k: u32) {
-    std::fs::create_dir_all("examples/assets").expect("Failed to create parameter directory");
-    let path = format!("examples/assets/params_kzg_unsafe_{}", k);
-    // Step 1: Create an instance of ParamsKZG
+/// Generates parameters for a `2^k`-point domain in unchecked raw encoding.
+/// Flushes the output before reporting success and propagates any I/O error.
+fn create(k: u32, path: &str) -> io::Result<()> {
     let params: ParamsKZG<Bls12> = ParamsKZG::unsafe_setup(k, OsRng);
 
-    // Step 2: Open a file for writing
-    let file = File::create(&path).unwrap();
+    let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
+    params.write_custom(&mut writer, SerdeFormat::RawBytesUnchecked)?;
+    writer.flush()?;
 
-    // Step 3: Write the ParamsKZG to the file
-    params
-        .write_custom(&mut writer, SerdeFormat::RawBytesUnchecked)
-        .unwrap();
-
-    println!("ParamsKZG written to {}", path);
+    Ok(())
 }
 
-fn open(k: u32) -> ParamsKZG<Bls12> {
-    let path = format!("examples/assets/params_kzg_unsafe_{}", k);
-    let file = File::open(path).unwrap();
+/// Reloads a locally generated parameter file in the matching raw encoding.
+fn open(path: &str) -> io::Result<ParamsKZG<Bls12>> {
+    let file = File::open(path)?;
     let mut reader = BufReader::new(file);
-    let params: ParamsKZG<Bls12> =
-        ParamsKZG::read_custom(&mut reader, SerdeFormat::RawBytesUnchecked).unwrap();
-
-    params
+    ParamsKZG::read_custom(&mut reader, SerdeFormat::RawBytesUnchecked)
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     // Create unsafe params for tests
     // Usage: cargo run --release -- <k>
 
@@ -50,8 +49,14 @@ fn main() {
     // Parse the first argument as a u32
     let k: u32 = args[1]
         .parse()
-        .expect("Invalid value for k, must be an integer");
+        .expect("Invalid value for k: expected an unsigned integer");
 
-    create(k);
-    open(k);
+    fs::create_dir_all("examples/assets")?;
+    let path = format!("examples/assets/params_kzg_unsafe_{k}");
+    let temporary = format!("{path}.tmp-{}", std::process::id());
+    create(k, &temporary)?;
+    open(&temporary)?;
+    fs::rename(&temporary, &path)?;
+    println!("ParamsKZG written to {path}");
+    Ok(())
 }

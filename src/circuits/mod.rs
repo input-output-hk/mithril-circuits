@@ -1,3 +1,11 @@
+//! Certificate relations and their shared verification gadgets.
+//!
+//! [`certificate_topiconly`] verifies one signature per winning index.
+//! [`certificate_topicbody`] verifies a topic signature for eligibility and a
+//! second signature binding the topic and body. Both authenticate registered
+//! keys and targets with Poseidon Merkle paths and enforce ordered indices.
+//! Both use compact [`crate::schnorr_signature::Signature`] witnesses.
+
 use crate::{
     ArithInstructions, AssertionInstructions, AssignedBit, AssignedNative, AssignedNativePoint,
     AssignedScalarOfNativeCurve, AssignmentInstructions, BinaryInstructions,
@@ -6,21 +14,16 @@ use crate::{
 };
 use ff::{Field, PrimeField};
 
-pub mod certificate;
-pub mod fixed_bases;
-pub mod ivc_one;
+pub mod certificate_topicbody;
+pub mod certificate_topiconly;
+
+#[cfg(test)]
+mod test_srs;
 
 type F = JubjubBase;
 type C = Jubjub;
 
-/// Prefix applied (see [`fixed_bases::relabel`]) to the fixed-base labels of
-/// the certificate verifying key when its proofs are folded into an
-/// accumulator together with proofs of an IVC circuit.
-pub const CERT_VK_NAME: &str = "cert_vk";
-/// Name of the `ivc_one` verifying key. Its fixed bases keep the native
-/// `midnight-circuits` labels, so this is informational only.
-pub const IVC_ONE_NAME: &str = "ivc_one_vk";
-
+/// Constrains the canonical integer representatives to have the same low bit.
 fn assert_equal_parity(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
@@ -32,19 +35,23 @@ fn assert_equal_parity(
     std_lib.assert_equal(layouter, &sgn0, &sgn1)
 }
 
-// Decompose a 255-bit value into 127-bit and 128-bit values without checking the bound
+/// Assigns a low/high split, constraining recomposition modulo the field and parity.
+///
+/// This helper alone does not bound the limbs. Callers must enforce a 127-bit
+/// low limb and a 128-bit high limb. With those bounds, the parity check rules
+/// out the alternative representation obtained by adding the odd modulus.
 fn decompose_unsafe(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     x: &AssignedNative<F>,
 ) -> Result<(AssignedNative<F>, AssignedNative<F>), Error> {
-    // Decompose 255-bit value into 127-bit and 128-bit values.
+    // Decompose the 255-bit value into 127-bit and 128-bit values.
     let x_value = x.value();
     let base127 = F::from_u128(1_u128 << 127);
     let (x_low, x_high) = x_value.map(|v| split(v, 127)).unzip();
 
-    let x_low_assigned: AssignedNative<_> = std_lib.assign(layouter, x_low.clone())?;
-    let x_high_assigned: AssignedNative<_> = std_lib.assign(layouter, x_high.clone())?;
+    let x_low_assigned: AssignedNative<_> = std_lib.assign(layouter, x_low)?;
+    let x_high_assigned: AssignedNative<_> = std_lib.assign(layouter, x_high)?;
 
     let x_combined: AssignedNative<_> = std_lib.linear_combination(
         layouter,
@@ -56,14 +63,17 @@ fn decompose_unsafe(
     )?;
     std_lib.assert_equal(layouter, x, &x_combined)?;
 
-    // Verify the least significant bit is consistent to make sure the decomposition is unique
-    // This works because the modulus is an odd number
-    assert_equal_parity(std_lib, layouter, &x, &x_low_assigned)?;
+    // Verify that the least significant bit is consistent to ensure a unique decomposition.
+    // This works because the modulus is odd.
+    assert_equal_parity(std_lib, layouter, x, &x_low_assigned)?;
 
     Ok((x_low_assigned, x_high_assigned))
 }
 
-// Compare x < y where x, y are 255-bit
+/// Compares canonical field representatives through bounded low/high limbs.
+///
+/// The standard library comparisons range-check both operands of each limb
+/// comparison, completing the bounds required by `decompose_unsafe`.
 fn lower_than_native(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
@@ -73,7 +83,7 @@ fn lower_than_native(
     let (x_low_assigned, x_high_assigned) = decompose_unsafe(std_lib, layouter, x)?;
     let (y_low_assigned, y_high_assigned) = decompose_unsafe(std_lib, layouter, y)?;
 
-    // Check if x < y
+    // Check whether x < y.
     let is_equal_high = std_lib.is_equal(layouter, &x_high_assigned, &y_high_assigned)?;
     let is_less_low = std_lib.lower_than(layouter, &x_low_assigned, &y_low_assigned, 127)?;
     let is_less_high = std_lib.lower_than(layouter, &x_high_assigned, &y_high_assigned, 128)?;
@@ -82,6 +92,9 @@ fn lower_than_native(
     std_lib.or(layouter, &[is_less_high, low_less])
 }
 
+/// Authenticates `Poseidon(vk_x, vk_y, target)` against the public registry root.
+///
+/// Position zero places the sibling on the left; one places it on the right.
 fn verify_merkle_path(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
@@ -91,19 +104,19 @@ fn verify_merkle_path(
     merkle_siblings: &[AssignedNative<F>],
     merkle_positions: &[AssignedBit<F>],
 ) -> Result<(), Error> {
-    let vk_x = std_lib.jubjub().x_coordinate(&vk);
-    let vk_y = std_lib.jubjub().y_coordinate(&vk);
+    let vk_x = std_lib.jubjub().x_coordinate(vk);
+    let vk_y = std_lib.jubjub().y_coordinate(vk);
     let leaf = std_lib.poseidon(layouter, &[vk_x.clone(), vk_y.clone(), target.clone()])?;
     let root = merkle_siblings
         .iter()
         .zip(merkle_positions.iter())
         .try_fold(leaf, |acc, (x, pos)| {
             // Choose the left child for hashing:
-            // If pos is 1 (sibling on right) choose the current node else the sibling.
+            // If pos is 1 (sibling on the right), choose the current node; otherwise, the sibling.
             let left = std_lib.select(layouter, pos, &acc, x)?;
 
             // Choose the right child for hashing:
-            // If pos is 1 (sibling on right) choose the sibling else the current node.
+            // If pos is 1 (sibling on the right), choose the sibling; otherwise, the current node.
             let right = std_lib.select(layouter, pos, x, &acc)?;
 
             std_lib.poseidon(layouter, &[left, right])
@@ -112,18 +125,40 @@ fn verify_merkle_path(
     std_lib.assert_equal(layouter, &root, merkle_root)
 }
 
+/// References to a compact Schnorr tag, response, and two forms of the challenge.
+///
+/// `c_native` is compared with the Poseidon challenge; `c` is its scalar form
+/// used in the two elliptic-curve verification equations.
+struct AssignedUniqueSignature<'a> {
+    sigma: &'a AssignedNativePoint<C>,
+    s: &'a AssignedScalarOfNativeCurve<C>,
+    c: &'a AssignedScalarOfNativeCurve<C>,
+    c_native: &'a AssignedNative<F>,
+}
+
+/// Checks a compact Schnorr signature using a precomputed message hash point.
+///
+/// Reconstructs `R1 = hash * s + sigma * c` and `R2 = generator * s + vk * c`,
+/// where `c` is the scalar form of the challenge. Hashes the domain tag followed
+/// by the affine coordinates of `(hash, vk, sigma, R1, R2)` and compares the full
+/// base-field result with `c_native`. The message is bound through `hash`; the
+/// generator and raw message fields are not separate transcript inputs.
 fn verify_unique_signature(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
     dst_signature: &AssignedNative<F>,
     generator: &AssignedNativePoint<C>,
     vk: &AssignedNativePoint<C>,
-    s: &AssignedScalarOfNativeCurve<C>,
-    c: &AssignedScalarOfNativeCurve<C>,
-    c_native: &AssignedNative<F>,
     hash: &AssignedNativePoint<C>,
-    sigma: &AssignedNativePoint<C>,
+    signature: AssignedUniqueSignature<'_>,
 ) -> Result<(), Error> {
+    let AssignedUniqueSignature {
+        sigma,
+        s,
+        c,
+        c_native,
+    } = signature;
+
     // Compute R1
     let cap_r_1 = std_lib.jubjub().msm(
         layouter,
@@ -138,13 +173,13 @@ fn verify_unique_signature(
         &[generator.clone(), vk.clone()],
     )?;
 
-    // Compute H2(g, H1(msg), vk, sigma, R1, R2)
-    let hx = std_lib.jubjub().x_coordinate(&hash);
-    let hy = std_lib.jubjub().y_coordinate(&hash);
-    let vk_x = std_lib.jubjub().x_coordinate(&vk);
-    let vk_y = std_lib.jubjub().y_coordinate(&vk);
-    let sigma_x = std_lib.jubjub().x_coordinate(&sigma);
-    let sigma_y = std_lib.jubjub().y_coordinate(&sigma);
+    // Hash the domain tag and affine coordinates of (H1(msg), vk, sigma, R1, R2).
+    let hx = std_lib.jubjub().x_coordinate(hash);
+    let hy = std_lib.jubjub().y_coordinate(hash);
+    let vk_x = std_lib.jubjub().x_coordinate(vk);
+    let vk_y = std_lib.jubjub().y_coordinate(vk);
+    let sigma_x = std_lib.jubjub().x_coordinate(sigma);
+    let sigma_y = std_lib.jubjub().y_coordinate(sigma);
     let cap_r_1_x = std_lib.jubjub().x_coordinate(&cap_r_1);
     let cap_r_1_y = std_lib.jubjub().y_coordinate(&cap_r_1);
     let cap_r_2_x = std_lib.jubjub().x_coordinate(&cap_r_2);
@@ -169,6 +204,10 @@ fn verify_unique_signature(
     std_lib.assert_equal(layouter, c_native, &c_prime)
 }
 
+/// Checks `Poseidon(prefix, sigma_x, sigma_y, index) <= target` in the circuit.
+///
+/// Index bounds, signature validity, and target authentication are enforced by
+/// the surrounding certificate relation.
 fn verify_lottery(
     std_lib: &ZkStdLib,
     layouter: &mut impl Layouter<F>,
@@ -183,7 +222,7 @@ fn verify_lottery(
         layouter,
         &[lottery_prefix.clone(), sigma_x, sigma_y, index.clone()],
     )?;
-    let is_less = lower_than_native(std_lib, layouter, &target, &ev)?;
+    let is_less = lower_than_native(std_lib, layouter, target, &ev)?;
     std_lib.assert_false(layouter, &is_less)
 }
 
@@ -198,11 +237,11 @@ mod tests {
     pub struct TestCircuit;
 
     impl Relation for TestCircuit {
+        type Error = Error;
+
         type Instance = F;
 
         type Witness = (F, F);
-
-        type Error = Error;
 
         fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
             Ok(vec![*instance])
@@ -215,7 +254,7 @@ mod tests {
             _instance: Value<Self::Instance>,
             witness: Value<Self::Witness>,
         ) -> Result<(), Error> {
-            // First we witness a Scalar.
+            // Assign the two native base-field values to compare.
             let (a, b) = witness.unzip();
             let x = std_lib.assign(layouter, a)?;
             let y = std_lib.assign(layouter, b)?;
@@ -239,8 +278,8 @@ mod tests {
                 curve25519: false,
                 bls12_381: false,
                 base64: false,
-                nb_arith_cols: 5,
                 nr_pow2range_cols: 2,
+                nb_arith_cols: 5,
                 automaton: false,
                 blake2b: false,
             }
@@ -261,9 +300,9 @@ mod tests {
         let relation = TestCircuit;
 
         {
-            let circuit = MidnightCircuit::from_relation(&relation, None);
-            println!("k (optimal) {:?}", circuit.k());
-            println!("{:?}", zk::cost_model(&relation, None, false));
+            let circuit = MidnightCircuit::from_relation(&relation, Some(K));
+            println!("k {:?}", circuit.k());
+            println!("{:?}", zk::cost_model(&relation, Some(K), false));
         }
 
         {

@@ -1,25 +1,43 @@
+//! Certificate relation with one signed topic per vote.
+//!
+//! Public inputs are `(registry_root, topic)`. Each witness entry contains a
+//! registered leaf, its Merkle path, a signature on `[registry_root, topic]`,
+//! and a winning lottery index. The same signature supplies the deterministic
+//! tag used by the lottery. Signatures use the compact Schnorr representation
+//! from [`crate::schnorr_signature`]. Indices must be strictly increasing and
+//! below the configured lottery count; a signer may contribute several indices.
+
 use crate::{
     AssignedBit, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve,
     AssignmentInstructions, CircuitCurve, ConversionInstructions, DST_LOTTERY,
     DST_UNIQUE_SIGNATURE, Error, Layouter, LotteryIndex, MerkleRoot, Msg, PublicInputInstructions,
     Relation, Value, ZkStdLib, ZkStdLibArch,
-    circuits::{C, F, verify_lottery, verify_merkle_path, verify_unique_signature},
+    circuits::{
+        AssignedUniqueSignature, C, F, verify_lottery, verify_merkle_path, verify_unique_signature,
+    },
     merkle_tree::{MTLeaf, MerklePath},
-    unique_signature::Signature,
+    schnorr_signature::Signature,
 };
 use ff::Field;
 use group::Group;
 
+/// Circuit configuration fixing quorum, lottery count, and membership-path depth.
 #[derive(Clone, Default, Debug)]
 pub struct Certificate {
-    // k in mithril: the required number of signatures for a valid certificate
+    // Required number of distinct winning lottery indices.
     quorum: u32,
-    // m in mithril: the number of lotteries that a user can participate in to sign a message
+    // Number of lottery indices available to each signer.
     num_lotteries: u32,
     merkle_tree_depth: u32,
 }
 
 impl Certificate {
+    /// Creates a circuit configuration without validating its parameters.
+    ///
+    /// `quorum` counts distinct winning indices, not distinct keys. Each
+    /// witness path must contain `merkle_tree_depth` siblings. Synthesis
+    /// requires `quorum < num_lotteries`; callers should choose a positive
+    /// quorum. The 16-bit comparisons require `num_lotteries < 2^16`.
     pub fn new(quorum: u32, num_lotteries: u32, merkle_tree_depth: u32) -> Self {
         Self {
             quorum,
@@ -30,9 +48,15 @@ impl Certificate {
 }
 
 impl Relation for Certificate {
-    type Instance = (MerkleRoot, Msg);
-    type Witness = Vec<(MTLeaf, MerklePath, Signature, LotteryIndex)>;
     type Error = Error;
+
+    /// Public registry root and encoded topic, in public-input order.
+    type Instance = (MerkleRoot, Msg);
+    /// Private witness: a vector of tuples containing a leaf, path, topic signature,
+    /// and index.
+    /// The circuit enforces exactly `quorum` entries.
+    /// The indices must be strictly increasing to ensure uniqueness.
+    type Witness = Vec<(MTLeaf, MerklePath, Signature, LotteryIndex)>;
 
     fn format_instance(instance: &Self::Instance) -> Result<Vec<F>, Error> {
         Ok(vec![instance.0, instance.1])
@@ -49,25 +73,29 @@ impl Relation for Certificate {
 
         let merkle_root: AssignedNative<F> =
             std_lib.assign_as_public_input(layouter, instance.map(|(x, _)| x))?;
-        let msg: AssignedNative<F> =
+        let msg_topic: AssignedNative<F> =
             std_lib.assign_as_public_input(layouter, instance.map(|(_, x)| x))?;
 
-        // Compute H_1(merkle_root, msg)
-        let hash = std_lib.hash_to_curve(layouter, &[merkle_root.clone(), msg.clone()])?;
+        // Compute the hash of merkle_root and msg_topic once for reuse in
+        // the topic signatures and the lottery eligibility checks.
+        let hash_topic =
+            std_lib.hash_to_curve(layouter, &[merkle_root.clone(), msg_topic.clone()])?;
 
         let generator: AssignedNativePoint<C> = std_lib.jubjub().assign_fixed(
             layouter,
             <C as CircuitCurve>::CryptographicGroup::generator(),
         )?;
 
+        // Assign domain separation tags for signature and lottery hashing.
         let dst_signature: AssignedNative<_> =
             std_lib.assign_fixed(layouter, DST_UNIQUE_SIGNATURE)?;
         let dst_lottery: AssignedNative<_> = std_lib.assign_fixed(layouter, DST_LOTTERY)?;
         let lottery_prefix = std_lib.poseidon(
             layouter,
-            &[dst_lottery.clone(), merkle_root.clone(), msg.clone()],
+            &[dst_lottery.clone(), merkle_root.clone(), msg_topic.clone()],
         )?;
 
+        // Ensure that the witness comprises exactly `quorum` entries.
         let witness = witness.transpose_vec(self.quorum as usize);
 
         let mut pre_index: AssignedNative<_> = std_lib.assign(layouter, Value::known(F::ZERO))?;
@@ -75,7 +103,7 @@ impl Relation for Certificate {
             let index: AssignedNative<F> =
                 std_lib.assign(layouter, wit.clone().map(|(_, _, _, i)| F::from(i as u64)))?;
 
-            // Check index order
+            // Enforce strictly increasing indices to ensure uniqueness.
             if i > 0 {
                 let is_less = std_lib.lower_than(layouter, &pre_index, &index, 16)?;
                 std_lib.assert_true(layouter, &is_less)?;
@@ -90,7 +118,8 @@ impl Relation for Certificate {
             let target: AssignedNative<F> =
                 std_lib.assign(layouter, wit.clone().map(|(x, _, _, _)| x.1))?;
 
-            // Assign sibling Values.
+            // ----------------- Verify Merkle Path -----------------
+            // Assign sibling values.
             let assigned_merkle_siblings = std_lib.assign_many(
                 layouter,
                 wit.clone()
@@ -99,7 +128,7 @@ impl Relation for Certificate {
                     .as_slice(),
             )?;
 
-            // Assign sibling Position.
+            // Assign sibling positions.
             let assigned_merkle_positions = std_lib.assign_many(
                 layouter,
                 wit.clone()
@@ -108,21 +137,11 @@ impl Relation for Certificate {
                     .as_slice(),
             )?;
 
-            // Assert merkle positions are binary values.
+            // Assert that Merkle path positions are binary values.
             let assigned_merkle_positions = assigned_merkle_positions
                 .iter()
                 .map(|pos| std_lib.convert(layouter, pos))
                 .collect::<Result<Vec<AssignedBit<F>>, Error>>()?;
-
-            let sigma: AssignedNativePoint<_> = std_lib
-                .jubjub()
-                .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.sigma))?;
-            let s: AssignedScalarOfNativeCurve<C> = std_lib
-                .jubjub()
-                .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.s))?;
-            let c_native = std_lib.assign(layouter, wit.map(|(_, _, sig, _)| sig.c))?;
-            let c: AssignedScalarOfNativeCurve<C> =
-                std_lib.jubjub().convert(layouter, &c_native)?;
 
             verify_merkle_path(
                 std_lib,
@@ -134,23 +153,45 @@ impl Relation for Certificate {
                 &assigned_merkle_positions,
             )?;
 
+            // ----------------- Verify Topic Signature -----------------
+            let sigma_topic: AssignedNativePoint<_> = std_lib
+                .jubjub()
+                .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.sigma))?;
+            let s_topic: AssignedScalarOfNativeCurve<C> = std_lib
+                .jubjub()
+                .assign(layouter, wit.clone().map(|(_, _, sig, _)| sig.s))?;
+            let c_native_topic = std_lib.assign(layouter, wit.map(|(_, _, sig, _)| sig.c))?;
+            let c_topic: AssignedScalarOfNativeCurve<C> =
+                std_lib.jubjub().convert(layouter, &c_native_topic)?;
+
             verify_unique_signature(
                 std_lib,
                 layouter,
                 &dst_signature,
                 &generator,
                 &vk,
-                &s,
-                &c,
-                &c_native,
-                &hash,
-                &sigma,
+                &hash_topic,
+                AssignedUniqueSignature {
+                    sigma: &sigma_topic,
+                    s: &s_topic,
+                    c: &c_topic,
+                    c_native: &c_native_topic,
+                },
             )?;
 
-            verify_lottery(std_lib, layouter, &lottery_prefix, &sigma, &index, &target)?;
+            // ----------------- Verify Lottery Eligibility -----------------
+            verify_lottery(
+                std_lib,
+                layouter,
+                &lottery_prefix,
+                &sigma_topic,
+                &index,
+                &target,
+            )?;
         }
 
-        // m can be put as a public instance or a constant
+        // Ensure that the last index is less than `num_lotteries` (= m).
+        // m can be supplied as a public input or fixed as a constant.
         let m = std_lib.assign_fixed(layouter, F::from(self.num_lotteries as u64))?;
         let is_less = std_lib.lower_than(layouter, &pre_index, &m, 16)?;
 
@@ -171,8 +212,8 @@ impl Relation for Certificate {
             curve25519: false,
             bls12_381: false,
             base64: false,
-            nb_arith_cols: 5,
             nr_pow2range_cols: 2,
+            nb_arith_cols: 5,
             automaton: false,
         }
     }
@@ -211,21 +252,17 @@ impl Relation for Certificate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::merkle_tree::MerkleTree;
     use crate::{
-        Bls12,
-        unique_signature::{SigningKey, VerificationKey},
+        circuits::test_srs::load_srs,
+        merkle_tree::MerkleTree,
+        schnorr_signature::{SigningKey, VerificationKey},
     };
     use ff::Field;
-    use midnight_proofs::poly::kzg::params::ParamsKZG;
     use midnight_proofs::utils::SerdeFormat;
     use midnight_zk_stdlib as zk;
     use midnight_zk_stdlib::MidnightCircuit;
-    use rand_chacha::ChaCha20Rng;
-    use rand_chacha::rand_core::SeedableRng;
     use rand_core::OsRng;
-    use std::fs::File;
-    use std::io::{BufReader, Cursor};
+    use std::io::Cursor;
     use std::time::Instant;
 
     fn create_merkle_tree(n: usize) -> (Vec<SigningKey>, Vec<MTLeaf>, MerkleTree) {
@@ -236,7 +273,7 @@ mod tests {
         let mut leaves = Vec::new();
         for _ in 0..n {
             let sk = SigningKey::generate(&mut rng);
-            let vk = VerificationKey::from(&sk); // Replace this with actual initialization if provided
+            let vk = VerificationKey::from(&sk);
             leaves.push(MTLeaf(vk, -F::ONE));
             sks.push(sk);
         }
@@ -245,19 +282,8 @@ mod tests {
         (sks, leaves, tree)
     }
 
-    fn open(k: u32) -> ParamsKZG<Bls12> {
-        let path = format!("examples/assets/params_kzg_unsafe_{}", k);
-        let file = File::open(path).unwrap();
-        let mut reader = BufReader::new(file);
-        let params: ParamsKZG<Bls12> =
-            ParamsKZG::read_custom(&mut reader, SerdeFormat::RawBytesUnchecked).unwrap();
-
-        params
-    }
-
-    fn run_certificate_case(case_name: &str, k: u32, quorum: u32, find_optimal_k: bool) {
-        // let srs = filecoin_srs(k);
-        let srs = open(k);
+    fn run_certificate_case(case_name: &str, k: u32, quorum: u32) {
+        let srs = load_srs(k);
 
         // Keep num_signers fixed for baseline comparisons.
         let num_signers: usize = 3000;
@@ -269,14 +295,11 @@ mod tests {
 
         {
             // Print circuit sizing information.
+            let circuit = MidnightCircuit::from_relation(&relation, None);
             println!("\n=== Certificate case: {case_name} ===");
             println!("k (selected) {k}");
             println!("quorum {quorum}");
-            if find_optimal_k {
-                let circuit = MidnightCircuit::from_relation(&relation, None);
-                println!("k (optimal) {:?}", circuit.k());
-            }
-            // Benchmark the requested layout without repeating the optimal-k search.
+            println!("optimal_k {:?}", circuit.k());
             println!("{:?}", zk::cost_model(&relation, Some(k), false));
         }
 
@@ -288,34 +311,34 @@ mod tests {
 
         {
             let mut buffer = Cursor::new(Vec::new());
-            // Serialize the MidnightVK instance to the buffer in the RawBytes format
+            // Serialize the MidnightVK instance to the buffer in the RawBytes format.
             vk.write(&mut buffer, SerdeFormat::RawBytes).unwrap();
-            // Get the size of the serialized MidnightVK
+            // Get the size of the serialized MidnightVK.
             println!("vk length {:?}", buffer.get_ref().len());
         }
 
         let merkle_root = merkle_tree.root();
-        // message to be signed
-        let msg = F::from(42);
+        // Message to be signed.
+        let msg_topic = F::from(42);
 
-        // take the first few signers
+        // Take the first few signers.
         let mut witness = vec![];
         for i in 0..quorum as usize {
             let ii = i % num_signers;
             let usk = sks[ii].clone();
             let uvk = leaves[ii].0;
-            let sig = usk.sign(&[merkle_root, msg], &mut OsRng);
-            sig.verify(&[merkle_root, msg], &uvk).unwrap();
+            let sig_topic = usk.sign(&[merkle_root, msg_topic], &mut OsRng);
+            sig_topic.verify(&[merkle_root, msg_topic], &uvk).unwrap();
 
             let merkle_path = merkle_tree.get_path(ii);
             let computed_root = merkle_path.compute_root(leaves[ii]);
             assert_eq!(merkle_root, computed_root);
 
-            // any index is eligible as target is set to be the maximum
-            witness.push((leaves[ii], merkle_path, sig, (i + 1) as u32));
+            // Every index is eligible because the target is set to the maximum.
+            witness.push((leaves[ii], merkle_path, sig_topic, (i + 1) as u32));
         }
 
-        let instance = (merkle_root, msg);
+        let instance = (merkle_root, msg_topic);
 
         let start = Instant::now();
         let proof = zk::prove::<Certificate, blake2b_simd::State>(
@@ -345,44 +368,20 @@ mod tests {
     fn test_certificate_small() {
         const K: u32 = 13;
         const QUORUM: u32 = 3;
-        run_certificate_case("small", K, QUORUM, true);
+        run_certificate_case("small", K, QUORUM);
     }
 
     #[test]
     fn test_certificate_medium() {
         const K: u32 = 16;
         const QUORUM: u32 = 32;
-        run_certificate_case("medium", K, QUORUM, true);
+        run_certificate_case("medium", K, QUORUM);
     }
 
     #[test]
     fn test_certificate_large() {
         const K: u32 = 21;
         const QUORUM: u32 = 1024;
-        run_certificate_case("large", K, QUORUM, true);
-    }
-
-    #[test]
-    #[ignore = "large certificate benchmark; requires k=19 KZG parameters"]
-    fn benchmark_certificate_q256_k19() {
-        run_certificate_case("q256_k19", 19, 256, false);
-    }
-
-    #[test]
-    #[ignore = "large certificate benchmark; requires k=20 KZG parameters"]
-    fn benchmark_certificate_q512_k20() {
-        run_certificate_case("q512_k20", 20, 512, false);
-    }
-
-    #[test]
-    #[ignore = "large certificate benchmark; requires k=21 KZG parameters"]
-    fn benchmark_certificate_q1024_k21() {
-        run_certificate_case("q1024_k21", 21, 1024, false);
-    }
-
-    #[test]
-    #[ignore = "large certificate benchmark; requires k=22 KZG parameters"]
-    fn benchmark_certificate_q1944_k22() {
-        run_certificate_case("q1944_k22", 22, 1944, false);
+        run_certificate_case("large", K, QUORUM);
     }
 }

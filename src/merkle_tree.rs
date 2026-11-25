@@ -1,57 +1,34 @@
-use crate::{HashCPU, JubjubBase, PoseidonHash, Target, unique_signature::VerificationKey};
-use ff::Field;
-use thiserror::Error;
+//! Poseidon Merkle commitments to registered verification keys and lottery targets.
+//!
+//! Leaves hash the three fields `(vk_x, vk_y, target)`. Internal nodes hash
+//! `(left, right)`, and missing children use `Poseidon([0])`. Paths list
+//! siblings from the leaf upward, matching the certificate verification gadget.
 
-#[derive(Debug, Error)]
-pub enum MerkleTreeError {
-    #[error("Verification failed: Merkle proof is invalid.")]
-    VerificationFailed,
-    /// This error occurs when the serialization of the raw bytes failed
-    #[error("Invalid bytes")]
-    SerializationError,
-}
+use crate::{HashCPU, JubjubBase, PoseidonHash, Target, schnorr_signature::VerificationKey};
+use ff::Field;
 
 type F = JubjubBase;
 
+/// Registry entry pairing a verification key with its inclusive lottery target.
 #[derive(Debug, Copy, Clone)]
 pub struct MTLeaf(pub VerificationKey, pub Target);
 
 impl MTLeaf {
+    /// Encodes the leaf as `(vk_x, vk_y, target)` before hashing.
     pub fn to_field(&self) -> [F; 3] {
         let mut elements = [F::ZERO; 3];
         elements[0..2].copy_from_slice(&self.0.to_field());
         elements[2] = self.1;
         elements
     }
-
-    pub fn to_bytes(&self) -> [u8; 96] {
-        let mut bytes = [0u8; 96];
-        bytes[0..64].copy_from_slice(&self.0.to_bytes());
-        bytes[64..96].copy_from_slice(&self.1.to_bytes_le());
-        bytes
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, MerkleTreeError> {
-        let bytes = bytes
-            .get(0..96)
-            .ok_or(MerkleTreeError::SerializationError)?;
-        let target_bytes: [u8; 32] = bytes[64..96]
-            .try_into()
-            .map_err(|_| MerkleTreeError::SerializationError)?;
-        let vk = VerificationKey::from_bytes(&bytes[0..64])
-            .map_err(|_| MerkleTreeError::SerializationError)?;
-        let target = Target::from_bytes_le(&target_bytes)
-            .into_option()
-            .ok_or(MerkleTreeError::SerializationError)?;
-
-        Ok(Self(vk, target))
-    }
 }
 
+/// Position of a sibling relative to the current node in a membership path.
 #[derive(Clone, Copy, Debug)]
-// The position of the sibling in the tree.
 pub enum Position {
+    /// Hash the sibling before the current node; encoded as field zero.
     Left,
+    /// Hash the current node before the sibling; encoded as field one.
     Right,
 }
 
@@ -64,51 +41,53 @@ impl From<Position> for F {
     }
 }
 
+/// Membership-path siblings and their positions, ordered from the leaf upward.
 #[derive(Clone, Debug)]
-// Struct defining the witness of the MT proof.
 pub struct MerklePath {
-    // Sibling nodes corresponding to a field value F representing some
-    // hash and whether the position is left or right.
-    // if position == Position::Left, then sibling is on the left
-    // if position == Position::Right, then sibling is on the right
+    /// Each pair contains a sibling's position and its hash.
     pub siblings: Vec<(Position, F)>,
 }
 
 impl MerklePath {
+    /// Wraps an ordered list of siblings without validating a root or depth.
     pub fn new(siblings: Vec<(Position, F)>) -> Self {
         Self { siblings }
     }
 
+    /// Borrows the leaf-to-root sequence of siblings.
     pub fn get_siblings(&self) -> &[(Position, F)] {
         &self.siblings
     }
 
-    // Function to compute (off circuit) the Merkle tree root given the leaf and the
-    // sibling nodes.
+    /// Recomputes a root from a leaf and this path, outside the circuit.
+    ///
+    /// Membership is established by comparing the result with the expected
+    /// registry root; this method does not perform that comparison itself.
     pub fn compute_root(&self, leaf: MTLeaf) -> F {
         let digest = PoseidonHash::hash(&leaf.to_field());
 
         // Compute the Merkle root.
         self.siblings.iter().fold(digest, |acc, x| match x.0 {
-            // if sibling is on the left => hash(sibling, node)
+            // If the sibling is on the left, hash (sibling, node).
             Position::Left => PoseidonHash::hash(&[x.1, acc]),
-            // if sibling is on the right => hash(node, sibling)
+            // If the sibling is on the right, hash (node, sibling).
             Position::Right => PoseidonHash::hash(&[acc, x.1]),
         })
     }
 }
 
+/// Poseidon tree stored as a binary heap, with leaves at a common depth.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MerkleTree {
     /// The nodes are stored in an array heap:
-    /// * `nodes[0]` is the root,
-    /// * the parent of `nodes[i]` is `nodes[(i-1)/2]`
-    /// * the children of `nodes[i]` are `{nodes[2i + 1], nodes[2i + 2]}`
-    /// * All nodes have size `Output<D>::output_size()`, even leafs (which are hashed before committing them).
+    /// * `nodes[0]` is the root.
+    /// * The parent of `nodes[i]` is `nodes[(i-1)/2]`.
+    /// * The children of `nodes[i]` are `{nodes[2i + 1], nodes[2i + 2]}`.
+    /// * Every stored node is one field element, including hashed leaves.
     nodes: Vec<F>,
     /// The leaves begin at `nodes[leaf_off]`.
     leaf_off: usize,
-    /// Number of leaves cached in the merkle tree.
+    /// Number of leaves stored in the Merkle tree.
     n: usize,
 }
 
@@ -127,14 +106,20 @@ fn right_child(i: usize) -> usize {
 
 fn sibling(i: usize) -> usize {
     assert!(i > 0, "The root node does not have a sibling");
-    // In the heap representation, the left sibling is always odd
-    // And the right sibling is the next node
-    // We're assuming that the heap is complete
+    // Left children have odd indices; their right siblings follow immediately.
+    // This assumes a complete binary heap.
     if i % 2 == 1 { i + 1 } else { i - 1 }
 }
 
 impl MerkleTree {
-    /// Provided a non-empty list of leaves, `create` generates its corresponding `MerkleTree`.
+    /// Builds a tree from the ordered registry leaves.
+    ///
+    /// The leaf capacity is rounded up to the next power of two. Absent leaf
+    /// children are represented by `Poseidon([0])`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the leaf list is empty.
     pub fn create(leaves: &[MTLeaf]) -> MerkleTree {
         let n = leaves.len();
         assert!(n > 0, "MerkleTree::create() called with no leaves");
@@ -168,16 +153,21 @@ impl MerkleTree {
         }
     }
 
-    /// Get the root of the tree.
+    /// Returns the root of the tree.
     pub fn root(&self) -> F {
         self.nodes[0]
     }
 
-    /// Return the index of the leaf.
+    /// Returns the index of the leaf.
     fn idx_of_leaf(&self, i: usize) -> usize {
         self.leaf_off + i
     }
 
+    /// Constructs a membership path for zero-based registry position `i`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` is outside the registered leaf list.
     pub fn get_path(&self, i: usize) -> MerklePath {
         assert!(
             i < self.n,
@@ -191,7 +181,7 @@ impl MerkleTree {
 
         while idx > 0 {
             let h = if sibling(idx) < self.nodes.len() {
-                self.nodes[sibling(idx)].clone()
+                self.nodes[sibling(idx)]
             } else {
                 z
             };
@@ -208,63 +198,18 @@ impl MerkleTree {
 
         MerklePath::new(proof)
     }
-    pub fn to_merkle_tree_commitment(&self) -> MerkleTreeCommitment {
-        MerkleTreeCommitment::new(self.nodes[0].clone(), self.n as u32)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MerkleTreeCommitment {
-    merkle_root: F,
-    nr_leaves: u32,
-}
-
-impl MerkleTreeCommitment {
-    pub fn new(merkle_root: F, nr_leaves: u32) -> Self {
-        Self {
-            merkle_root,
-            nr_leaves,
-        }
-    }
-}
-
-impl From<MerkleTreeCommitment> for Vec<u8> {
-    fn from(mt_commit: MerkleTreeCommitment) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&mt_commit.merkle_root.to_bytes_le());
-        bytes.extend_from_slice(&mt_commit.nr_leaves.to_le_bytes());
-        bytes
-    }
-}
-
-impl TryFrom<&[u8]> for MerkleTreeCommitment {
-    type Error = &'static str;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 36 {
-            return Err("Invalid byte length for MerkleTreeCommitment");
-        }
-
-        let merkle_root = JubjubBase::from_bytes_le(bytes[0..32].try_into().unwrap()).unwrap();
-        let nr_leaves = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
-
-        Ok(MerkleTreeCommitment {
-            merkle_root,
-            nr_leaves,
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unique_signature::SigningKey;
+    use crate::schnorr_signature::SigningKey;
     use rand_core::OsRng;
 
     fn create_leaf(value: F) -> MTLeaf {
         let mut rng = OsRng;
         let sk = SigningKey::generate(&mut rng);
-        let vk = VerificationKey::from(&sk); // Replace this with actual initialization if provided
+        let vk = VerificationKey::from(&sk);
         MTLeaf(vk, value)
     }
 
@@ -318,10 +263,10 @@ mod tests {
 
         let tree = MerkleTree::create(&leaves);
 
-        for i in 0..leaves.len() {
+        for (i, leaf) in leaves.iter().enumerate() {
             let path = tree.get_path(i);
             println!("{:?}", path.get_siblings().len());
-            let computed_root = path.compute_root(leaves[i]);
+            let computed_root = path.compute_root(*leaf);
             assert_eq!(
                 tree.root(),
                 computed_root,

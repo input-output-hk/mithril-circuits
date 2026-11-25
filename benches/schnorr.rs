@@ -1,13 +1,20 @@
+//! Native compact Schnorr signing and verification benchmarks.
+//!
+//! Run `cargo bench --bench schnorr`. Key generation and message selection
+//! happen outside the timed loops. Signing includes OS-backed nonce generation;
+//! verification checks a compact `(sigma, s, c)` signature prepared before
+//! timing starts, including hash-to-curve and both commitment reconstructions.
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use ff::Field;
 use rand_core::OsRng;
 
-use mithril_circuits::{
+use snark_stms::{
     JubjubBase,
-    unique_signature::{Signature, SigningKey, VerificationKey},
+    schnorr_signature::{SigningKey, VerificationKey},
 };
 
-/// Benchmarks the signing operation
+/// Benchmarks the signing operation.
 fn benchmark_sign(c: &mut Criterion) {
     let mut rng = OsRng;
     let sk = SigningKey::generate(&mut rng);
@@ -20,7 +27,7 @@ fn benchmark_sign(c: &mut Criterion) {
     });
 }
 
-/// Benchmarks the signature verification operation
+/// Benchmarks the signature verification operation.
 fn benchmark_verify(c: &mut Criterion) {
     let mut rng = OsRng;
     let sk = SigningKey::generate(&mut rng);
@@ -30,7 +37,7 @@ fn benchmark_verify(c: &mut Criterion) {
 
     c.bench_function("Verifying a signature", |b| {
         b.iter(|| {
-            let _ = signature.verify(&[msg], &vk).unwrap();
+            signature.verify(&[msg], &vk).unwrap();
         })
     });
 }

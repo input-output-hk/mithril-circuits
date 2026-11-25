@@ -1,3 +1,14 @@
+//! Native BLS signing, verification, and weighted batch-verification benchmarks.
+//!
+//! Run `cargo bench --bench bls`. Distinct batch keys and same-message signatures
+//! are prepared outside the timed loops. Each batch iteration hashes the ordered
+//! signature list, then derives each coefficient using its public key. It converts points,
+//! performs weighted key and signature MSMs, and verifies the resulting BLS
+//! equation. The verification calls disable signature group checks and public-key
+//! validation, as specified by their flags.
+
+use std::collections::HashSet;
+
 use blake2::{Blake2b, Digest};
 use blst::min_sig::{PublicKey, Signature};
 use blst::{
@@ -48,12 +59,20 @@ fn benchmark_verify(c: &mut Criterion) {
 fn aggregate_and_verify(c: &mut Criterion, num_signatures: usize) {
     let mut rng = OsRng;
     let mut ikm = [0u8; 32];
-    rng.fill_bytes(&mut ikm);
 
     let sks = (0..num_signatures)
-        .map(|_| SecretKey::key_gen(&ikm, &[]).unwrap())
+        .map(|_| {
+            rng.fill_bytes(&mut ikm);
+            SecretKey::key_gen(&ikm, &[]).unwrap()
+        })
         .collect::<Vec<_>>();
     let vks = sks.iter().map(|sk| sk.sk_to_pk()).collect::<Vec<_>>();
+    let unique_vks = vks.iter().map(PublicKey::to_bytes).collect::<HashSet<_>>();
+    assert_eq!(
+        unique_vks.len(),
+        vks.len(),
+        "Batch public keys must be distinct"
+    );
 
     let mut msg = [0u8; 32];
     rng.fill_bytes(&mut msg);
@@ -65,7 +84,7 @@ fn aggregate_and_verify(c: &mut Criterion, num_signatures: usize) {
 
     c.bench_function(
         &format!(
-            "Aggregate and Verifying {:?} BLS signatures",
+            "Aggregating and verifying {:?} BLS signatures",
             num_signatures
         ),
         |b| {
@@ -75,13 +94,13 @@ fn aggregate_and_verify(c: &mut Criterion, num_signatures: usize) {
                     hashed_sigs.update(sig.to_bytes());
                 }
 
-                // First we generate the scalars
-                let mut scalars = Vec::with_capacity(vks.len() * 128);
+                // Distinct public keys separate the 128-bit coefficients without an index.
+                let mut scalars = Vec::with_capacity(vks.len() * 16);
                 let mut signatures = Vec::with_capacity(vks.len());
-                for (index, sig) in sigs.iter().enumerate() {
+                for (vk, sig) in vks.iter().zip(sigs.iter()) {
                     let mut hasher = hashed_sigs.clone();
-                    hasher.update(index.to_be_bytes());
-                    signatures.push(sig.clone());
+                    hasher.update(vk.to_bytes());
+                    signatures.push(*sig);
                     scalars.extend_from_slice(hasher.finalize().as_slice());
                 }
 
@@ -89,7 +108,7 @@ fn aggregate_and_verify(c: &mut Criterion, num_signatures: usize) {
                     .iter()
                     .map(|vk| unsafe {
                         let mut projective_p2 = blst_p2::default();
-                        blst_p2_from_affine(&mut projective_p2, &blst_p2_affine::from(vk.clone()));
+                        blst_p2_from_affine(&mut projective_p2, &blst_p2_affine::from(*vk));
                         projective_p2
                     })
                     .collect::<Vec<_>>();
