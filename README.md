@@ -39,6 +39,41 @@ The deterministic tag of the topic signature supplies the lottery projection.
 The native and circuit checks accept an evaluation when `ev <= target`.
 Targets are computed outside the circuit by [`lottery::target`](src/lottery.rs).
 
+## Recursive certificate chains
+
+[`ivc_one`](src/circuits/ivc_one/) adapts the `main` branch's recursive circuit
+to both certificate relations. Choose `CertificateVariant::TopicOnly` or
+`CertificateVariant::TopicBody` when generating IVC keys with `IvcKeys::setup`.
+The certificate variant and certificate verification key stay fixed for the
+stream; each variant uses its own IVC proving and verification keys.
+
+Each step checks the genesis authority signature or folds a certificate proof
+and the preceding IVC proof. It binds the protocol-message SHA-256 preimage to
+the state transition, checks registry-root handoff between epochs, and permits
+additional certificates within an epoch. The announced next registry root and
+protocol parameters must stay fixed within that epoch. The first certificate
+after genesis must advance exactly one epoch.
+
+The protocol-message hash is the signed topic in topic-only mode and the
+signed body in topic/body mode. The latter keeps its lottery topic separate
+and can reuse that topic across body changes. Both the topic and the
+protocol-message hash appear in the public state. The fixed 190-byte layout
+and its native encoder are documented in
+[`ivc_one::message`](src/circuits/ivc_one/message.rs).
+
+Use `State::genesis`, `Witness`, `proof::initial_accumulator`, and
+`proof::prove_step` to advance a chain. Intermediate IVC proofs and all inner
+certificate proofs must use `PoseidonState<F>` transcripts. A terminal IVC
+proof may use Blake2b. `proof::verify` takes the trusted `Global` values and
+checks **both** the final SNARK and its public accumulator.
+
+Certificate and IVC parameters must come from the **same SRS**. Load one SRS
+covering both circuit sizes, then clone and downsize it for the certificate
+circuit and for the IVC circuit (`k = 19`). Independently generating a file
+for each size produces incompatible setups. The IVC API carries protocol
+parameter commitments in its state; the certificate circuit's actual
+configuration is fixed by the stream's certificate verification key.
+
 ## Build
 
 Use Rust 1.90 or newer (edition 2024). This checkout has been tested
@@ -56,7 +91,7 @@ and `--no-default-features` does not change the challenge format.
 
 ## SRS setup
 
-Certificate benchmarks use unsafe KZG parameters cached in
+Certificate and IVC benchmarks use unsafe KZG parameters cached in
 `examples/assets/params_kzg_unsafe_<k>`, sized for each circuit. Missing files
 are generated automatically by the setup binary in a separate process, then
 reused on subsequent runs. This excludes SRS generation from the benchmark's
@@ -80,7 +115,7 @@ cargo run --release --example setup
 ```
 
 Both setup commands replace an existing file for that size. For certificate
-tests, proof examples, and certificate benchmarks, set `SRS_FILE` to use an
+and IVC tests, proof examples, and benchmarks, set `SRS_FILE` to use an
 explicit parameter file in Midnight's `RawBytesUnchecked` format instead of
 the cache. The file must already exist and cover every enabled case; larger
 parameters are downsized in memory. A missing or undersized explicit file
@@ -111,6 +146,9 @@ cargo test --release
 
 With `SRS_FILE` unset, certificate tests require
 `examples/assets/params_kzg_unsafe_<k>` for `k = 13, 14, 16, 17, 21, 22`.
+IVC chain tests additionally need `k = 19` and derive their smaller certificate
+parameters from that same file.
+
 Before running the full suite, generate the missing sizes using one of the
 setup commands above. Alternatively, use one existing file with `k >= 22`
 for the full suite:
@@ -121,6 +159,12 @@ SRS_FILE=examples/assets/params_kzg_unsafe_22 cargo test --release
 
 Filtered runs can use a smaller file if it covers every selected test.
 The larger proof tests require substantially more time and memory.
+
+To run only the recursive chain tests, including both certificate variants:
+
+```bash
+cargo test --release circuits::ivc_one::tests::test_ivc_ -- --test-threads=1 --nocapture
+```
 
 ## Benchmarks
 
@@ -141,6 +185,38 @@ setup and proving, including when listing:
 cargo bench --bench certificates -- certificate_topiconly
 cargo bench --bench certificates -- certificate_topicbody
 cargo bench --bench certificates -- --list
+```
+
+### Recursive circuits
+
+[`benches/ivc.rs`](benches/ivc.rs) benchmarks both certificate variants using
+the certificate benchmark workloads: 3,000 signers and quorums of 128, 256,
+512, and 1,024. Each proving run builds a fresh four-step chain covering
+genesis, the next epoch, a second certificate in that epoch, and a further
+epoch transition. Change `SETUP_RUNS`, `PROOF_RUNS`, `CHAIN_STEPS`, or the
+workloads in that file to select the experiment.
+
+It reports IVC key setup, per-step and full-chain proving times, terminal
+proof and accumulator sizes, Criterion full-verification timings, and peak
+process RAM on Linux. Inner certificate setup and proof generation are
+excluded from the IVC timings. Proving includes native state/accumulator
+preparation and the recursive SNARK. Verification includes both pairing
+checks. Peak RAM includes inner certificate preparation and previous cases.
+SRS generation happens in a separate process through the shared benchmark
+loader; one SRS is downsized for both proof layers.
+
+```bash
+cargo bench --bench ivc
+cargo bench --bench ivc -- ivc_topiconly
+cargo bench --bench ivc -- ivc_topicbody
+```
+
+As with certificate benchmarks, filtering or listing still prepares every
+configured case. A smoke run uses four signers and quorum one while retaining
+the full recursive circuit and four-step chain:
+
+```bash
+IVC_BENCH_SMOKE=1 cargo bench --bench ivc -- --test
 ```
 
 ### Signatures
@@ -166,6 +242,7 @@ and includes a native signing example.
 | Path | Purpose |
 | --- | --- |
 | [`src/circuits/`](src/circuits/) | Certificate relations and shared verification gadgets |
+| [`src/circuits/ivc_one/`](src/circuits/ivc_one/) | Recursive chains for either certificate variant, genesis authority signatures, and accumulator verification |
 | [`src/schnorr_signature.rs`](src/schnorr_signature.rs) | Compact Schnorr signatures with deterministic lottery tags |
 | [`src/lottery.rs`](src/lottery.rs) | Registration-time targets and native lottery checks |
 | [`src/merkle_tree.rs`](src/merkle_tree.rs) | Registry leaves, Poseidon Merkle trees, and membership paths |

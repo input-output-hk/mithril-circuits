@@ -16,6 +16,10 @@ use ff::{Field, PrimeField};
 
 pub mod certificate_topicbody;
 pub mod certificate_topiconly;
+pub mod ivc_one;
+
+/// Prefix separating certificate commitments from recursive IVC commitments.
+pub const CERT_VK_NAME: &str = "cert_vk";
 
 #[cfg(test)]
 mod test_srs;

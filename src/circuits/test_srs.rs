@@ -1,4 +1,4 @@
-//! Shared loading of existing KZG parameters for certificate proof tests.
+//! Shared loading of existing KZG parameters for certificate and IVC proof tests.
 
 use std::{
     env,

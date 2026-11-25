@@ -10,6 +10,8 @@
 //! separate topic and full-message signatures. Native operations live in
 //! [`schnorr_signature`], [`merkle_tree`], and [`lottery`]. Messages are slices
 //! of field elements; callers choose their application encoding before signing.
+//! [`circuits::ivc_one`] recursively chains either certificate variant, with
+//! genesis authentication, epoch transitions, and a public KZG accumulator.
 //!
 //! The compact Schnorr scheme combines a deterministic tag with a randomized
 //! Chaum-Pedersen proof. Only the tag supplies the lottery projection. The
@@ -56,20 +58,56 @@ pub use schnorr_signature::SignatureError;
 pub use midnight_zk_stdlib::{MidnightCircuit, Relation, ZkStdLib, ZkStdLibArch};
 
 pub use midnight_circuits::{
-    ecc::{curves::CircuitCurve, hash_to_curve::HashToCurveGadget, native::EccChip},
-    hash::poseidon::PoseidonChip,
+    ecc::{
+        curves::CircuitCurve,
+        foreign::weierstrass_chip::{
+            ForeignWeierstrassEccChip as ForeignEccChip,
+            ForeignWeierstrassEccConfig as ForeignEccConfig, nb_foreign_ecc_chip_columns,
+        },
+        hash_to_curve::HashToCurveGadget,
+        native::{EccChip, EccConfig, NB_EDWARDS_COLS},
+    },
+    field::{
+        NativeChip, NativeConfig, NativeGadget,
+        decomposition::{
+            chip::{P2RDecompositionChip, P2RDecompositionConfig},
+            pow2range::Pow2RangeChip,
+        },
+        foreign::FieldChip,
+        native::{MIN_NB_ARITH_COLS, NB_EXTRA_ARITH_FIXED_COLS},
+    },
+    hash::poseidon::{
+        NB_POSEIDON_ADVICE_COLS, NB_POSEIDON_FIXED_COLS, PoseidonChip, PoseidonConfig,
+        PoseidonState,
+    },
     instructions::{
         ArithInstructions, AssertionInstructions, AssignmentInstructions, BinaryInstructions,
         ControlFlowInstructions, ConversionInstructions, DecompositionInstructions,
-        EccInstructions, EqualityInstructions, HashToCurveCPU, PublicInputInstructions,
-        hash::HashCPU,
+        EccInstructions, EqualityInstructions, HashInstructions, HashToCurveCPU,
+        PublicInputInstructions, ZeroInstructions, hash::HashCPU,
     },
-    types::{AssignedBit, AssignedNative, AssignedNativePoint, AssignedScalarOfNativeCurve},
+    types::{
+        AssignedBit, AssignedByte, AssignedNative, AssignedNativePoint,
+        AssignedScalarOfNativeCurve, ComposableChip, InnerValue, Instantiable,
+    },
+    verifier::{
+        self, Accumulator, AssignedAccumulator, AssignedVk, BlstrsEmulation, Msm, Point,
+        SelfEmulation, VerifierGadget,
+    },
 };
 
 pub use midnight_proofs::{
-    circuit::{Layouter, Value},
-    plonk::Error,
+    circuit::{Layouter, SimpleFloorPlanner, Value},
+    dev::cost_model::circuit_model,
+    plonk::{
+        Circuit, ConstraintSystem, Error, VerifyingKey, create_proof, keygen_pk, keygen_vk_with_k,
+        prepare,
+    },
+    poly::{
+        EvaluationDomain, PolynomialLabel,
+        kzg::{KZGCommitmentScheme, msm::DualMSM, params::ParamsKZG},
+    },
+    transcript::{CircuitTranscript, Transcript},
 };
 
 type JubjubHashToCurve = HashToCurveGadget<
@@ -81,6 +119,11 @@ type JubjubHashToCurve = HashToCurveGadget<
 >;
 
 type PoseidonHash = PoseidonChip<JubjubBase>;
+
+/// Advice-column count used by the recursive circuit's native arithmetic chip.
+pub const NB_ARITH_COLS: usize = MIN_NB_ARITH_COLS;
+/// Fixed-column count corresponding to [`NB_ARITH_COLS`].
+pub const NB_ARITH_FIXED_COLS: usize = NB_ARITH_COLS + NB_EXTRA_ARITH_FIXED_COLS;
 
 /// One field element representing an encoded topic or message body.
 pub type Msg = JubjubBase;
@@ -95,6 +138,8 @@ pub type LotteryIndex = u32;
 ///
 /// The name refers to the deterministic lottery tag; the proof is randomized.
 pub const DST_UNIQUE_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 2, 0, 0]);
+/// Domain tag for the IVC genesis authority's Schnorr signature.
+pub const DST_SCHNORR_SIGNATURE: JubjubBase = JubjubBase::from_raw([2, 3, 0, 0]);
 /// Domain tag used to derive the lottery context prefix.
 pub const DST_LOTTERY: JubjubBase = JubjubBase::from_raw([3, 3, 0, 0]);
 
@@ -104,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_dst_constants_are_unique() {
-        let dsts = vec![DST_UNIQUE_SIGNATURE, DST_LOTTERY];
+        let dsts = vec![DST_UNIQUE_SIGNATURE, DST_SCHNORR_SIGNATURE, DST_LOTTERY];
 
         let mut sorted_dsts = dsts.clone();
         sorted_dsts.sort();

@@ -1,4 +1,4 @@
-//! Shared SRS loading and peak RAM reporting for certificate benchmarks.
+//! Shared SRS loading and peak RAM reporting for certificate and IVC benchmarks.
 
 use std::{env, fs, fs::File, io::BufReader, path::PathBuf, process::Command};
 
